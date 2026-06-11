@@ -63,17 +63,35 @@ protected:
 
 	Ref<ArrayMesh> array_mesh;
 	Ref<Material> slot_material;
+	Ref<Material> cached_slot_material;
 	SpineRendererObject *renderer_object;
 	SpineRendererObject *cached_renderer_object;
 	Ref<Texture2D> cached_albedo_texture;
 	Ref<StandardMaterial3D> cached_surface_material;
 	bool mesh_dirty;
 	bool surface_material_dirty;
+	bool mesh_assigned;
+	bool instance_refresh_needed;
 	int last_vertex_count;
 	int last_index_count;
+	int cached_draw_order;
+#if VERSION_MAJOR > 3
+	PackedByteArray vertex_buffer;
+	PackedByteArray attribute_buffer;
+	uint32_t surface_offsets[Mesh::ARRAY_MAX];
+	uint32_t vertex_stride;
+	uint32_t attribute_stride;
+#endif
+	PackedVector3Array pick_vertices;
+	PackedInt32Array pick_indices;
 
 	Ref<StandardMaterial3D> build_surface_material(const Ref<Texture2D> &p_albedo_texture, int draw_order);
-	void apply_surface_material();
+	void sync_mesh_aabb(const PackedVector3Array &p_vertices);
+	void apply_surface_material(bool p_force_instance_refresh = false);
+	void clear_mesh_surface();
+	void rebuild_mesh_surface(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs, const PackedColorArray &p_colors,
+							  const PackedInt32Array &p_indices);
+	void update_mesh_surface_buffers(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs, const PackedColorArray &p_colors);
 
 public:
 	SpineMesh3D();
@@ -128,6 +146,11 @@ protected:
 	Color debug_clipping_color;
 
 	Vector<SpineMesh3D *> mesh_instances;
+	PackedVector3Array scratch_mesh_vertices;
+	PackedVector2Array scratch_mesh_uvs;
+	PackedColorArray scratch_mesh_colors;
+	PackedInt32Array scratch_mesh_indices;
+	bool atlas_textures_pending_refresh;
 	MeshInstance3D *debug_mesh_instance;
 	Ref<Material> normal_material;
 	Ref<Material> additive_material;
@@ -166,7 +189,6 @@ protected:
 
 	void generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref);
 	void remove_meshes();
-	void sort_mesh_instances();
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
 	void draw_debug();
 	void draw_debug_bone(Ref<ImmediateMesh> &mesh, spine::Bone *bone, const Color &color);

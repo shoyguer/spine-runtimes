@@ -192,7 +192,7 @@
 		<member name="paths_color" type="Color" setter="set_debug_paths_color" getter="get_debug_paths_color" default="Color( 1, 0.498039, 0, 0.466667 )">
 			Color used when [code]paths[/code] debug drawing is enabled.
 		</member>
-		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="1.0">
+		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="0.1">
 			Scales skeleton units to Godot 3D units. Lower values shrink the sprite in world space.
 		</member>
 		<member name="regions" type="bool" setter="set_debug_regions" getter="get_debug_regions" default="false">

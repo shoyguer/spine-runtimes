@@ -44,11 +44,17 @@
 #include <godot_cpp/classes/texture2d.hpp>
 #include <godot_cpp/classes/engine.hpp>
 #include <godot_cpp/classes/immediate_mesh.hpp>
+#include <godot_cpp/classes/rendering_server.hpp>
 #else
 #include "core/os/memory.h"
 #include "core/config/engine.h"
 #include "core/math/triangle_mesh.h"
 #include "scene/resources/immediate_mesh.h"
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 6)
+#include "servers/rendering/rendering_server.h"
+#else
+#include "servers/rendering_server.h"
+#endif
 #ifdef TOOLS_ENABLED
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
 #include "editor/file_system/editor_file_system.h"
@@ -162,12 +168,21 @@ void SpineMesh3D::_bind_methods() {
 }
 
 void SpineMesh3D::set_material(const Ref<Material> &p_material) {
+	if (slot_material == p_material) {
+		return;
+	}
 	slot_material = p_material;
+	surface_material_dirty = true;
 }
 
 SpineMesh3D::SpineMesh3D()
-	: renderer_object(nullptr), cached_renderer_object(nullptr), mesh_dirty(true), surface_material_dirty(true), last_vertex_count(0),
-	  last_index_count(0) {
+	: renderer_object(nullptr), cached_renderer_object(nullptr), mesh_dirty(true), surface_material_dirty(true), mesh_assigned(false),
+	  instance_refresh_needed(false), last_vertex_count(0), last_index_count(0), cached_draw_order(-1) {
+#if VERSION_MAJOR > 3
+	vertex_stride = 0;
+	attribute_stride = 0;
+	memset(surface_offsets, 0, sizeof(surface_offsets));
+#endif
 }
 
 Ref<StandardMaterial3D> SpineMesh3D::build_surface_material(const Ref<Texture2D> &p_albedo_texture, int draw_order) {
@@ -200,68 +215,61 @@ Ref<StandardMaterial3D> SpineMesh3D::build_surface_material(const Ref<Texture2D>
 	return instance_material;
 }
 
-void SpineMesh3D::apply_surface_material() {
+void SpineMesh3D::apply_surface_material(bool p_force_instance_refresh) {
 	if (!cached_surface_material.is_valid() || !array_mesh.is_valid() || array_mesh->get_surface_count() == 0) {
+		set_material_override(Ref<Material>());
 		return;
 	}
 	array_mesh->surface_set_material(0, cached_surface_material);
-	set_surface_override_material(0, cached_surface_material);
-	// Re-assign the mesh so the 3D instance picks up surface and material changes.
-	Ref<ArrayMesh> mesh_ref = array_mesh;
-	set_mesh(Ref<ArrayMesh>());
-	set_mesh(mesh_ref);
+	set_material_override(cached_surface_material);
+	if (p_force_instance_refresh || instance_refresh_needed) {
+		Ref<ArrayMesh> mesh_ref = array_mesh;
+		set_mesh(Ref<ArrayMesh>());
+		set_mesh(mesh_ref);
+		instance_refresh_needed = false;
+	}
 }
 
-void SpineMesh3D::update_mesh(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs, const PackedColorArray &p_colors,
-							  const PackedInt32Array &p_indices, const Ref<Texture2D> &p_albedo_texture, int draw_order) {
-	renderer_object = nullptr;
+void SpineMesh3D::sync_mesh_aabb(const PackedVector3Array &p_vertices) {
+	if (!array_mesh.is_valid() || p_vertices.is_empty()) {
+		return;
+	}
+	AABB aabb;
+	for (int i = 0; i < p_vertices.size(); i++) {
+		if (i == 0) {
+			aabb.position = p_vertices[i];
+			aabb.size = Vector3();
+		} else {
+			aabb.expand_to(p_vertices[i]);
+		}
+	}
+	RenderingServer::get_singleton()->mesh_set_custom_aabb(array_mesh->get_rid(), aabb);
+}
 
-	if (!array_mesh.is_valid()) {
-#ifdef SPINE_GODOT_EXTENSION
-		array_mesh.instantiate();
-#else
-		array_mesh = Ref<ArrayMesh>(memnew(ArrayMesh));
+void SpineMesh3D::clear_mesh_surface() {
+	if (array_mesh.is_valid() && array_mesh->get_surface_count() > 0) {
+		array_mesh->clear_surfaces();
+	}
+	set_material_override(Ref<Material>());
+	pick_vertices.clear();
+	pick_indices.clear();
+#if VERSION_MAJOR > 3
+	vertex_buffer.clear();
+	attribute_buffer.clear();
+	vertex_stride = 0;
+	attribute_stride = 0;
+	memset(surface_offsets, 0, sizeof(surface_offsets));
 #endif
-		set_mesh(array_mesh);
-		last_vertex_count = 0;
-		last_index_count = 0;
-	}
+	cached_surface_material.unref();
+	cached_albedo_texture.unref();
+	surface_material_dirty = true;
+	last_vertex_count = 0;
+	last_index_count = 0;
+	mesh_dirty = true;
+}
 
-	if (p_vertices.is_empty() || p_indices.is_empty()) {
-		if (array_mesh->get_surface_count() > 0) {
-			array_mesh->clear_surfaces();
-			Ref<ArrayMesh> mesh_ref = array_mesh;
-			set_mesh(Ref<ArrayMesh>());
-			set_mesh(mesh_ref);
-		}
-		cached_surface_material.unref();
-		cached_albedo_texture.unref();
-		surface_material_dirty = true;
-		last_vertex_count = 0;
-		last_index_count = 0;
-		mesh_dirty = true;
-		return;
-	}
-
-	if (!is_albedo_texture_ready(p_albedo_texture)) {
-		if (array_mesh->get_surface_count() > 0) {
-			array_mesh->clear_surfaces();
-			Ref<ArrayMesh> mesh_ref = array_mesh;
-			set_mesh(Ref<ArrayMesh>());
-			set_mesh(mesh_ref);
-		}
-		cached_surface_material.unref();
-		cached_albedo_texture.unref();
-		surface_material_dirty = true;
-		last_vertex_count = 0;
-		last_index_count = 0;
-		mesh_dirty = true;
-		if (SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent())) {
-			sprite->schedule_display_refresh();
-		}
-		return;
-	}
-
+void SpineMesh3D::rebuild_mesh_surface(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs, const PackedColorArray &p_colors,
+									   const PackedInt32Array &p_indices) {
 	Array arrays;
 	arrays.resize(Mesh::ARRAY_MAX);
 	arrays[Mesh::ARRAY_VERTEX] = p_vertices;
@@ -269,36 +277,126 @@ void SpineMesh3D::update_mesh(const PackedVector3Array &p_vertices, const Packed
 	arrays[Mesh::ARRAY_COLOR] = p_colors;
 	arrays[Mesh::ARRAY_INDEX] = p_indices;
 
+	array_mesh->clear_surfaces();
+	array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays, Array(), Dictionary(), Mesh::ARRAY_FLAG_USE_DYNAMIC_UPDATE);
+#if VERSION_MAJOR > 3
+	RenderingServer *rs = RenderingServer::get_singleton();
+	RS::SurfaceData surface = rs->mesh_get_surface(array_mesh->get_rid(), 0);
+	uint32_t skin_stride = 0;
+	uint32_t normal_tangent_stride = 0;
+#if VERSION_MINOR > 1
+	rs->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count, surface_offsets, vertex_stride,
+											  normal_tangent_stride, attribute_stride, skin_stride);
+#else
+	rs->mesh_surface_make_offsets_from_format(surface.format, surface.vertex_count, surface.index_count, surface_offsets, vertex_stride,
+											  attribute_stride, skin_stride);
+#endif
+	vertex_buffer = surface.vertex_data;
+	attribute_buffer = surface.attribute_data;
+#endif
+	sync_mesh_aabb(p_vertices);
+
+	last_vertex_count = p_vertices.size();
+	last_index_count = p_indices.size();
+	surface_material_dirty = true;
+}
+
+void SpineMesh3D::update_mesh_surface_buffers(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs,
+											  const PackedColorArray &p_colors) {
+#if VERSION_MAJOR > 3
+	if (vertex_buffer.is_empty() || attribute_buffer.is_empty()) {
+		return;
+	}
+
+	AABB aabb_new;
+	uint8_t *vertex_write_buffer = vertex_buffer.ptrw();
+	uint8_t *attribute_write_buffer = attribute_buffer.ptrw();
+	for (int i = 0; i < p_vertices.size(); i++) {
+		Vector3 vertex = p_vertices[i];
+		if (i == 0) {
+			aabb_new.position = vertex;
+			aabb_new.size = Vector3();
+		} else {
+			aabb_new.expand_to(vertex);
+		}
+
+		const Color &color = p_colors[i];
+		uint8_t color_bytes[4] = {uint8_t(CLAMP(color.r * 255.0, 0.0, 255.0)), uint8_t(CLAMP(color.g * 255.0, 0.0, 255.0)),
+								  uint8_t(CLAMP(color.b * 255.0, 0.0, 255.0)), uint8_t(CLAMP(color.a * 255.0, 0.0, 255.0))};
+		Vector2 uv = p_uvs[i];
+		memcpy(&vertex_write_buffer[i * vertex_stride + surface_offsets[RS::ARRAY_VERTEX]], &vertex, sizeof(Vector3));
+		memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_COLOR]], color_bytes, 4);
+		memcpy(&attribute_write_buffer[i * attribute_stride + surface_offsets[RS::ARRAY_TEX_UV]], &uv, sizeof(Vector2));
+	}
+
+	RenderingServer *rs = RenderingServer::get_singleton();
+	rs->mesh_surface_update_vertex_region(array_mesh->get_rid(), 0, 0, vertex_buffer);
+	rs->mesh_surface_update_attribute_region(array_mesh->get_rid(), 0, 0, attribute_buffer);
+	rs->mesh_set_custom_aabb(array_mesh->get_rid(), aabb_new);
+#endif
+	sync_mesh_aabb(p_vertices);
+}
+
+void SpineMesh3D::update_mesh(const PackedVector3Array &p_vertices, const PackedVector2Array &p_uvs, const PackedColorArray &p_colors,
+							  const PackedInt32Array &p_indices, const Ref<Texture2D> &p_albedo_texture, int draw_order) {
+	if (!array_mesh.is_valid()) {
+#ifdef SPINE_GODOT_EXTENSION
+		array_mesh.instantiate();
+#else
+		array_mesh = Ref<ArrayMesh>(memnew(ArrayMesh));
+#endif
+		mesh_assigned = false;
+		last_vertex_count = 0;
+		last_index_count = 0;
+	}
+
+	if (p_vertices.is_empty() || p_indices.is_empty()) {
+		clear_mesh_surface();
+		return;
+	}
+
+	if (!is_albedo_texture_ready(p_albedo_texture)) {
+		clear_mesh_surface();
+		if (SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent())) {
+			sprite->schedule_display_refresh();
+		}
+		return;
+	}
+
 	const bool topology_changed = array_mesh->get_surface_count() == 0 || last_vertex_count != p_vertices.size() ||
 								  last_index_count != p_indices.size();
 	if (topology_changed) {
-		last_vertex_count = p_vertices.size();
-		last_index_count = p_indices.size();
-		surface_material_dirty = true;
+		rebuild_mesh_surface(p_vertices, p_uvs, p_colors, p_indices);
+	} else {
+		update_mesh_surface_buffers(p_vertices, p_uvs, p_colors);
 	}
-
-	array_mesh->clear_surfaces();
-	array_mesh->add_surface_from_arrays(Mesh::PRIMITIVE_TRIANGLES, arrays);
 
 	const bool texture_changed = cached_albedo_texture != p_albedo_texture;
+	const bool draw_order_changed = cached_draw_order != draw_order;
 	if (surface_material_dirty || !cached_surface_material.is_valid() || texture_changed) {
-		if (p_albedo_texture.is_valid()) {
-			cached_surface_material = build_surface_material(p_albedo_texture, draw_order);
-			cached_albedo_texture = p_albedo_texture;
-			surface_material_dirty = false;
-		} else {
-			cached_surface_material.unref();
-			cached_albedo_texture.unref();
-			surface_material_dirty = true;
+		cached_surface_material = build_surface_material(p_albedo_texture, draw_order);
+		cached_albedo_texture = p_albedo_texture;
+		cached_draw_order = draw_order;
+		surface_material_dirty = false;
+		instance_refresh_needed = true;
+	} else if (draw_order_changed && cached_surface_material.is_valid()) {
+		if (SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(get_parent())) {
+			sprite->configure_slot_material(cached_surface_material.ptr(), draw_order);
 		}
-	} else if (cached_surface_material.is_valid() && p_albedo_texture.is_valid()) {
-		Ref<Texture> bound_texture = cached_surface_material->get_texture(BaseMaterial3D::TEXTURE_ALBEDO);
-		if (bound_texture != p_albedo_texture) {
-			cached_surface_material->set_texture(BaseMaterial3D::TEXTURE_ALBEDO, p_albedo_texture);
-		}
+		cached_draw_order = draw_order;
 	}
-	apply_surface_material();
 
+	const bool force_instance_refresh = !mesh_assigned || instance_refresh_needed;
+	if (!mesh_assigned) {
+		set_mesh(array_mesh);
+		mesh_assigned = true;
+	}
+	if (cached_surface_material.is_valid()) {
+		apply_surface_material(force_instance_refresh);
+	}
+
+	pick_vertices = p_vertices;
+	pick_indices = p_indices;
 	mesh_dirty = false;
 }
 
@@ -461,10 +559,10 @@ void SpineSprite3D::_bind_methods() {
 
 SpineSprite3D::SpineSprite3D()
 	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0f), preview_skin("Default"), preview_animation("-- Empty --"),
-	  preview_frame(false), preview_time(0), debug_mesh_instance(nullptr), skeleton_clipper(nullptr), modified_bones(false), flip_h(false),
-	  flip_v(false), flip_origin_x(0.0f), flip_origin_y(0.0f), flip_origin_valid(false), modulate(Color(1, 1, 1, 1)), pixel_size(1.0),
-	  sprite_render_priority(0),
-	  billboard_mode(BaseMaterial3D::BILLBOARD_DISABLED), texture_filter(BaseMaterial3D::TEXTURE_FILTER_LINEAR_WITH_MIPMAPS) {
+	  preview_frame(false), preview_time(0), atlas_textures_pending_refresh(false), debug_mesh_instance(nullptr), skeleton_clipper(nullptr),
+	  modified_bones(false), flip_h(false), flip_v(false), flip_origin_x(0.0f), flip_origin_y(0.0f), flip_origin_valid(false),
+	  modulate(Color(1, 1, 1, 1)), pixel_size(0.1), sprite_render_priority(0), billboard_mode(BaseMaterial3D::BILLBOARD_DISABLED),
+	  texture_filter(BaseMaterial3D::TEXTURE_FILTER_LINEAR_WITH_MIPMAPS) {
 	for (int i = 0; i < FLAG_MAX; i++) {
 		draw_flags[i] = i == FLAG_TRANSPARENT || i == FLAG_DOUBLE_SIDED;
 	}
@@ -562,6 +660,7 @@ void SpineSprite3D::on_skeleton_data_changed() {
 	}
 
 	if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded()) {
+		atlas_textures_pending_refresh = false;
 		skeleton = Ref<SpineSkeleton>(memnew(SpineSkeleton));
 		skeleton->set_spine_sprite(this);
 		animation_state = Ref<SpineAnimationState>(memnew(SpineAnimationState));
@@ -645,9 +744,18 @@ Ref<Texture2D> SpineSprite3D::resolve_albedo_texture(SpineRendererObject *p_rend
 		return Ref<Texture2D>();
 	}
 
-	atlas->reload_page_textures();
-	connect_atlas_texture_refresh();
-	return texture_ref_from_renderer_object(p_renderer_object);
+	if (!atlas_textures_pending_refresh) {
+		atlas_textures_pending_refresh = true;
+		atlas->reload_page_textures();
+		connect_atlas_texture_refresh();
+		albedo_texture = texture_ref_from_renderer_object(p_renderer_object);
+		if (is_albedo_texture_ready(albedo_texture)) {
+			atlas_textures_pending_refresh = false;
+			return albedo_texture;
+		}
+		schedule_display_refresh();
+	}
+	return Ref<Texture2D>();
 }
 
 void SpineSprite3D::bind_editor_import_refresh() {
@@ -720,7 +828,6 @@ void SpineSprite3D::update_skeleton(float delta) {
 	modified_bones = false;
 	emit_signal(SNAME("world_transforms_changed"), this);
 	if (modified_bones) skeleton->update_world_transform(SpineConstant::Physics_Update);
-	sort_mesh_instances();
 	update_meshes(skeleton);
 	if (debug_mesh_instance) {
 		move_child(debug_mesh_instance, -1);
@@ -728,13 +835,8 @@ void SpineSprite3D::update_skeleton(float delta) {
 	draw_debug();
 }
 
-void SpineSprite3D::sort_mesh_instances() {
-	for (int i = 0; i < mesh_instances.size(); i++) {
-		move_child(mesh_instances[i], i);
-	}
-}
-
 void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
+	pick_triangle_mesh.unref();
 	auto &statics = SpineSprite3DStatics::instance();
 	spine::Skeleton *skeleton_obj = skeleton_ref->get_spine_object();
 	update_flip_origin(skeleton_obj);
@@ -743,7 +845,6 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		spine::Slot *slot = skeleton_obj->getDrawOrder().getAppliedPose()[i];
 		spine::Attachment *attachment = slot->getAppliedPose().getAttachment();
 		SpineMesh3D *mesh_instance = mesh_instances[i];
-		mesh_instance->mesh_dirty = true;
 		mesh_instance->set_sorting_offset((float)i * SPINE_SLOT_SORTING_OFFSET_STEP);
 
 		if (!attachment || !slot->getBone().isActive()) {
@@ -809,38 +910,41 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		}
 
 		if (scratch_indices->size() > 0) {
-			size_t num_vertices = scratch_vertices->size() / 2;
-			PackedVector3Array mesh_vertices;
-			PackedVector2Array mesh_uvs;
-			PackedColorArray mesh_colors;
-			PackedInt32Array mesh_indices;
-			mesh_vertices.resize((int)num_vertices);
-			mesh_uvs.resize((int)num_vertices);
-			mesh_colors.resize((int)num_vertices);
-			for (int j = 0; j < (int)num_vertices; j++) {
-				float x = scratch_vertices->buffer()[j * 2];
-				float y = scratch_vertices->buffer()[j * 2 + 1];
-				mesh_vertices.set(j, spine_vertex_to_local(x, y, i));
-				mesh_uvs.set(j, Vector2(scratch_uvs->buffer()[j * 2], scratch_uvs->buffer()[j * 2 + 1]));
-				mesh_colors.set(j, Color(tint.r, tint.g, tint.b, tint.a));
+			const int num_vertices = (int)scratch_vertices->size() / 2;
+			const int num_indices = (int)scratch_indices->size();
+			scratch_mesh_vertices.resize(num_vertices);
+			scratch_mesh_uvs.resize(num_vertices);
+			scratch_mesh_colors.resize(num_vertices);
+			for (int j = 0; j < num_vertices; j++) {
+				const float x = scratch_vertices->buffer()[j * 2];
+				const float y = scratch_vertices->buffer()[j * 2 + 1];
+				scratch_mesh_vertices.set(j, spine_vertex_to_local(x, y, i));
+				scratch_mesh_uvs.set(j, Vector2(scratch_uvs->buffer()[j * 2], scratch_uvs->buffer()[j * 2 + 1]));
+				scratch_mesh_colors.set(j, Color(tint.r, tint.g, tint.b, tint.a));
 			}
-			mesh_indices.resize((int)scratch_indices->size());
-			for (int j = 0; j < (int)scratch_indices->size(); ++j) mesh_indices.set(j, scratch_indices->buffer()[j]);
+			scratch_mesh_indices.resize(num_indices);
+			for (int j = 0; j < num_indices; ++j) {
+				scratch_mesh_indices.set(j, scratch_indices->buffer()[j]);
+			}
 
 			spine::BlendMode blend_mode = slot->getData().getBlendMode();
-			Ref<Material> custom_material;
+			Ref<Material> slot_material;
 			switch (blend_mode) {
-				case spine::BlendMode_Normal: custom_material = normal_material; break;
-				case spine::BlendMode_Additive: custom_material = additive_material; break;
-				case spine::BlendMode_Multiply: custom_material = multiply_material; break;
-				case spine::BlendMode_Screen: custom_material = screen_material; break;
+				case spine::BlendMode_Normal: slot_material = normal_material; break;
+				case spine::BlendMode_Additive: slot_material = additive_material; break;
+				case spine::BlendMode_Multiply: slot_material = multiply_material; break;
+				case spine::BlendMode_Screen: slot_material = screen_material; break;
 			}
-			if (custom_material.is_valid()) mesh_instance->set_material(custom_material);
-			else mesh_instance->set_material(statics.default_materials[blend_mode]);
+			if (!slot_material.is_valid()) {
+				slot_material = statics.default_materials[blend_mode];
+			}
+			if (mesh_instance->cached_slot_material != slot_material) {
+				mesh_instance->set_material(slot_material);
+				mesh_instance->cached_slot_material = slot_material;
+			}
 
 			Ref<Texture2D> albedo_texture = resolve_albedo_texture(slot_renderer_object);
-			mesh_instance->mesh_dirty = true;
-			mesh_instance->update_mesh(mesh_vertices, mesh_uvs, mesh_colors, mesh_indices, albedo_texture, i);
+			mesh_instance->update_mesh(scratch_mesh_vertices, scratch_mesh_uvs, scratch_mesh_colors, scratch_mesh_indices, albedo_texture, i);
 		}
 		skeleton_clipper->clipEnd(*slot);
 	}
@@ -880,9 +984,15 @@ Vector3 SpineSprite3D::spine_vertex_to_local(float x, float y, int draw_order) c
 }
 
 void SpineSprite3D::visual_settings_changed() {
+	atlas_textures_pending_refresh = false;
 	pick_triangle_mesh.unref();
 	for (int i = 0; i < mesh_instances.size(); i++) {
 		mesh_instances[i]->surface_material_dirty = true;
+		mesh_instances[i]->instance_refresh_needed = true;
+		mesh_instances[i]->last_vertex_count = 0;
+		mesh_instances[i]->last_index_count = 0;
+		mesh_instances[i]->pick_vertices.clear();
+		mesh_instances[i]->pick_indices.clear();
 		mesh_instances[i]->cached_surface_material.unref();
 		mesh_instances[i]->cached_albedo_texture.unref();
 	}
@@ -896,6 +1006,7 @@ void SpineSprite3D::visual_settings_changed() {
 
 void SpineSprite3D::refresh_display() {
 	refresh_atlas_page_textures();
+	connect_atlas_texture_refresh();
 	visual_settings_changed();
 }
 
@@ -1019,35 +1130,19 @@ Ref<TriangleMesh> SpineSprite3D::generate_triangle_mesh() const {
 
 	Vector<Vector3> faces;
 	for (int i = 0; i < mesh_instances.size(); i++) {
-		Ref<Mesh> mesh = mesh_instances[i]->get_mesh();
-		if (!mesh.is_valid() || mesh->get_surface_count() == 0) {
+		const PackedVector3Array &vertices = mesh_instances[i]->pick_vertices;
+		const PackedInt32Array &indices = mesh_instances[i]->pick_indices;
+		if (vertices.is_empty() || indices.is_empty()) {
 			continue;
 		}
 
-		// Read live surface geometry. generate_surface_triangle_mesh() can return stale cached
-		// triangle data after clear_surfaces()/add_surface_from_arrays() on slot meshes.
-		Array arrays = mesh->surface_get_arrays(0);
-		PackedVector3Array vertices = arrays[Mesh::ARRAY_VERTEX];
-		if (vertices.is_empty()) {
-			continue;
-		}
-
-		if (arrays.size() > Mesh::ARRAY_INDEX && arrays[Mesh::ARRAY_INDEX].get_type() == Variant::PACKED_INT32_ARRAY) {
-			PackedInt32Array indices = arrays[Mesh::ARRAY_INDEX];
-			for (int j = 0; j < indices.size(); j += 3) {
-				if (j + 2 >= indices.size()) {
-					break;
-				}
-				faces.push_back(vertices[indices[j]]);
-				faces.push_back(vertices[indices[j + 1]]);
-				faces.push_back(vertices[indices[j + 2]]);
+		for (int j = 0; j < indices.size(); j += 3) {
+			if (j + 2 >= indices.size()) {
+				break;
 			}
-		} else {
-			for (int j = 0; j + 2 < vertices.size(); j += 3) {
-				faces.push_back(vertices[j]);
-				faces.push_back(vertices[j + 1]);
-				faces.push_back(vertices[j + 2]);
-			}
+			faces.push_back(vertices[indices[j]]);
+			faces.push_back(vertices[indices[j + 1]]);
+			faces.push_back(vertices[indices[j + 2]]);
 		}
 	}
 
