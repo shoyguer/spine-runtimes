@@ -72,7 +72,7 @@
 		<method name="get_bounds">
 			<return type="Rect2" />
 			<description>
-				Returns the axis aligned bounding box (AABB) of the region and mesh attachments for the current pose. The bounds are relative to the [code]SpineSprite[/code] that stores the skeleton.
+				Returns the axis aligned bounding box (AABB) of the region and mesh attachments for the current pose. The bounds are relative to the [code]SpineSprite2D[/code] that stores the skeleton.
 			</description>
 		</method>
 		<method name="get_color">
@@ -146,14 +146,14 @@
 		<method name="get_x">
 			<return type="float" />
 			<description>
-				Sets the skeleton X position, which is added to the root bone worldX position. Relative to the [code]SpineSprite[/code].
+				Sets the skeleton X position, which is added to the root bone worldX position. Relative to the [code]SpineSprite2D[/code].
 				Bones that do not inherit translation are still affected by this property.
 			</description>
 		</method>
 		<method name="get_y">
 			<return type="float" />
 			<description>
-				Sets the skeleton Y position, which is added to the root bone worldX position. Relative to the [code]SpineSprite[/code].
+				Sets the skeleton Y position, which is added to the root bone worldX position. Relative to the [code]SpineSprite2D[/code].
 				Bones that do not inherit translation are still affected by this property.
 			</description>
 		</method>
@@ -183,7 +183,7 @@
 			<return type="void" />
 			<argument index="0" name="position" type="Vector2" />
 			<description>
-				Sets the skeleton position relative to the [code]SpineSprite[/code].
+				Sets the skeleton position relative to the [code]SpineSprite2D[/code].
 			</description>
 		</method>
 		<method name="set_scale_x">

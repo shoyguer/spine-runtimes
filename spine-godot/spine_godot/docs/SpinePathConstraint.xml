@@ -43,6 +43,7 @@
 		<method name="get_order">
 			<return type="int" />
 			<description>
+				Returns the constraint application order during skeleton world transform updates.
 			</description>
 		</method>
 		<method name="get_position">
@@ -66,53 +67,62 @@
 		<method name="is_active">
 			<return type="bool" />
 			<description>
+				Returns whether this path constraint is active. When inactive, the constraint is not applied.
 			</description>
 		</method>
 		<method name="set_active">
 			<return type="void" />
 			<argument index="0" name="v" type="bool" />
 			<description>
+				Sets whether this path constraint is active. When inactive, the constraint is not applied.
 			</description>
 		</method>
 		<method name="set_mix_rotate">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained rotation.
 			</description>
 		</method>
 		<method name="set_mix_x">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation X.
 			</description>
 		</method>
 		<method name="set_mix_y">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation Y.
 			</description>
 		</method>
 		<method name="set_position">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the position along the path.
 			</description>
 		</method>
 		<method name="set_spacing">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the spacing between constrained bones.
 			</description>
 		</method>
 		<method name="set_target">
 			<return type="void" />
 			<argument index="0" name="v" type="SpineSlot" />
 			<description>
+				Sets the slot whose path attachment drives this constraint.
 			</description>
 		</method>
 		<method name="update">
 			<return type="void" />
 			<description>
+				Applies the path constraint so constrained bones follow the target path attachment.
 			</description>
 		</method>
 	</methods>

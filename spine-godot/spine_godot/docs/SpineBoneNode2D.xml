@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="SpineBoneNode" inherits="Node2D" version="3.4">
+<class name="SpineBoneNode2D" inherits="Node2D" version="3.4">
 	<brief_description>
-		Node2D that either follows or drives a bone in a [code]SpineSprite[/code].
+		Node2D that either follows or drives a bone in a [code]SpineSprite2D[/code].
 	</brief_description>
 	<description>
-		Node2D that either follows or drives a bone in a [code]SpineSprite[/code]. If set to follow a bone, the bone's shear will be ignored.
+		Node2D that either follows or drives a bone in a [code]SpineSprite2D[/code]. If set to follow a bone, the bone's shear will be ignored.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -12,12 +12,16 @@
 	</methods>
 	<members>
 		<member name="bone_mode" type="int" setter="set_bone_mode" getter="get_bone_mode" enum="SpineConstant.BoneMode" default="0">
+			Selects follow or drive behavior. In follow mode the node copies the bone transform. In drive mode the node pushes its transform to the bone.
 		</member>
 		<member name="color" type="Color" setter="set_debug_color" getter="get_debug_color" default="Color( 1, 0, 0, 0.466667 )">
+			Debug line color drawn for this bone node in the editor.
 		</member>
 		<member name="enabled" type="bool" setter="set_enabled" getter="get_enabled" default="true">
+			When [code]false[/code], the node stops following or driving the bone.
 		</member>
 		<member name="thickness" type="float" setter="set_debug_thickness" getter="get_debug_thickness" default="5.0">
+			Debug line thickness for this bone node in the editor.
 		</member>
 	</members>
 	<constants>

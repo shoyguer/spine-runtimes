@@ -27,12 +27,23 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#define VERSION_MAJOR 4
-
 #ifdef TOOLS_ENABLED
+#include "SpineCommon.h"
 #include "SpineEditorPlugin.h"
 #include "SpineAtlasResource.h"
 #include "SpineSkeletonFileResource.h"
+
+#if VERSION_MAJOR > 3 && !defined(SPINE_GODOT_EXTENSION)
+#include "SpineSprite3D.h"
+#include "SpineSprite3DGizmoPlugin.h"
+#include "editor/editor_interface.h"
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
+#include "editor/file_system/editor_file_system.h"
+#else
+#include "editor/editor_file_system.h"
+#endif
+#include "editor/scene/3d/node_3d_editor_plugin.h"
+#endif
 
 #if VERSION_MAJOR > 3
 #ifdef SPINE_GODOT_EXTENSION
@@ -221,12 +232,85 @@ void SpineEditorPlugin::_notification(int p_what) {
 	}
 }
 #else
+void SpineEditorPlugin::_bind_methods() {
+#if VERSION_MAJOR > 3 && !defined(SPINE_GODOT_EXTENSION)
+	ClassDB::bind_method(D_METHOD("_on_main_screen_changed", "screen_name"), &SpineEditorPlugin::_on_main_screen_changed);
+	ClassDB::bind_method(D_METHOD("_on_scene_changed", "scene"), &SpineEditorPlugin::_on_scene_changed);
+	ClassDB::bind_method(D_METHOD("_on_resources_reimported", "resources"), &SpineEditorPlugin::_on_resources_reimported);
+	ClassDB::bind_method(D_METHOD("_on_filesystem_changed"), &SpineEditorPlugin::_on_filesystem_changed);
+#endif
+}
+
+#if VERSION_MAJOR > 3 && !defined(SPINE_GODOT_EXTENSION)
+void SpineEditorPlugin::_refresh_spine_sprite_3d_in_node(Node *p_node) {
+	if (SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(p_node)) {
+		sprite->refresh_display();
+	}
+	for (int i = 0; i < p_node->get_child_count(); i++) {
+		_refresh_spine_sprite_3d_in_node(p_node->get_child(i));
+	}
+}
+
+void SpineEditorPlugin::_refresh_edited_scene_spine_sprite_3d() {
+	Node *edited_scene_root = EditorInterface::get_singleton()->get_edited_scene_root();
+	if (!edited_scene_root) {
+		return;
+	}
+	_refresh_spine_sprite_3d_in_node(edited_scene_root);
+}
+
+void SpineEditorPlugin::_on_main_screen_changed(const String &p_screen_name) {
+	if (p_screen_name != "3D") {
+		return;
+	}
+	_refresh_edited_scene_spine_sprite_3d();
+}
+
+void SpineEditorPlugin::_on_scene_changed(Node *p_scene) {
+	if (!p_scene) {
+		return;
+	}
+	_refresh_spine_sprite_3d_in_node(p_scene);
+}
+
+void SpineEditorPlugin::_on_resources_reimported(const PackedStringArray &p_resources) {
+	if (p_resources.is_empty()) {
+		return;
+	}
+	_refresh_edited_scene_spine_sprite_3d();
+}
+
+void SpineEditorPlugin::_on_filesystem_changed() {
+	if (EditorFileSystem *efs = EditorFileSystem::get_singleton()) {
+		if (efs->is_scanning()) {
+			return;
+		}
+	}
+	_refresh_edited_scene_spine_sprite_3d();
+}
+#endif
+
 SpineEditorPlugin::SpineEditorPlugin(EditorNode *node) {
 	add_import_plugin(memnew(SpineAtlasResourceImportPlugin));
 	add_import_plugin(memnew(SpineJsonResourceImportPlugin));
 	add_import_plugin(memnew(SpineBinaryResourceImportPlugin));
 	add_inspector_plugin(memnew(SpineSkeletonDataResourceInspectorPlugin));
-	add_inspector_plugin(memnew(SpineSpriteInspectorPlugin));
+	add_inspector_plugin(memnew(SpineSprite2DInspectorPlugin));
+#if VERSION_MAJOR > 3
+	spine_sprite_3d_gizmo_plugin = Ref<SpineSprite3DGizmoPlugin>(memnew(SpineSprite3DGizmoPlugin));
+	Node3DEditor::get_singleton()->add_gizmo_plugin(spine_sprite_3d_gizmo_plugin);
+	// main_screen_changed exists on EditorPlugin in Godot 4.4+ only.
+	if (has_signal(SNAME("main_screen_changed"))) {
+		connect(SNAME("main_screen_changed"), callable_mp(this, &SpineEditorPlugin::_on_main_screen_changed));
+	}
+	if (has_signal(SNAME("scene_changed"))) {
+		connect(SNAME("scene_changed"), callable_mp(this, &SpineEditorPlugin::_on_scene_changed));
+	}
+	if (EditorFileSystem *efs = EditorFileSystem::get_singleton()) {
+		efs->connect(SNAME("filesystem_changed"), callable_mp(this, &SpineEditorPlugin::_on_filesystem_changed));
+		efs->connect(SNAME("resources_reimported"), callable_mp(this, &SpineEditorPlugin::_on_resources_reimported));
+	}
+#endif
 }
 #endif
 
@@ -384,7 +468,7 @@ void SpineEditorPropertyAnimationMix::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("data_changed"), &SpineEditorPropertyAnimationMix::data_changed);
 }
 
-void SpineEditorPropertyAnimationMix::data_changed(const String &property, const Variant &value, const String &name, bool changing) {
+void SpineEditorPropertyAnimationMix::data_changed(const String &property_name, const Variant &value, const String &name, bool changing) {
 	auto mix = Object::cast_to<SpineAnimationMix>(get_edited_object()->get(get_edited_property()));
 
 #if VERSION_MAJOR > 3
@@ -392,9 +476,9 @@ void SpineEditorPropertyAnimationMix::data_changed(const String &property, const
 #else
 	auto undo_redo = EditorNode::get_undo_redo();
 #endif
-	undo_redo->create_action("Set mix property " + property);
-	undo_redo->add_do_property(mix, property, value);
-	undo_redo->add_undo_property(mix, property, mix->get(property));
+	undo_redo->create_action("Set mix property " + property_name);
+	undo_redo->add_do_property(mix, property_name, value);
+	undo_redo->add_undo_property(mix, property_name, mix->get(property_name));
 	undo_redo->add_do_method(mixes_property, "update_mix_property", index);
 	undo_redo->add_undo_method(mixes_property, "update_mix_property", index);
 	// temporarily disable rebuilding the UI, as commit_action() calls update() which calls update_property(). however,
@@ -402,7 +486,7 @@ void SpineEditorPropertyAnimationMix::data_changed(const String &property, const
 	updating = true;
 	undo_redo->commit_action();
 	updating = false;
-	emit_changed(property, value, name, changing);
+	emit_changed(property_name, value, name, changing);
 }
 
 void SpineEditorPropertyAnimationMix::update_property() {
@@ -682,27 +766,44 @@ void SpineEditorPropertyAnimationMixes::on_mix_value_changed(float value, int mi
 }
 #endif
 
-void SpineSpriteInspectorPlugin::_bind_methods() {
-	ClassDB::bind_method(D_METHOD("button_clicked"), &SpineSpriteInspectorPlugin::button_clicked);
+void SpineSprite2DInspectorPlugin::_bind_methods() {
+	ClassDB::bind_method(D_METHOD("button_clicked"), &SpineSprite2DInspectorPlugin::button_clicked);
 }
 
-void SpineSpriteInspectorPlugin::button_clicked(const String &button_name) {
-}
-
-#ifdef SPINE_GODOT_EXTENSION
-bool SpineSpriteInspectorPlugin::_can_handle(Object *object) const {
-#else
-bool SpineSpriteInspectorPlugin::can_handle(Object *object) {
-#endif
-	return Object::cast_to<SpineSprite>(object) != nullptr;
+void SpineSprite2DInspectorPlugin::button_clicked(const String &button_name) {
 }
 
 #ifdef SPINE_GODOT_EXTENSION
-void SpineSpriteInspectorPlugin::_parse_begin(Object *object) {
+bool SpineSprite2DInspectorPlugin::_can_handle(Object *object) const {
 #else
-void SpineSpriteInspectorPlugin::parse_begin(Object *object) {
+bool SpineSprite2DInspectorPlugin::can_handle(Object *object) {
 #endif
-	sprite = Object::cast_to<SpineSprite>(object);
+#if VERSION_MAJOR > 3
+	return Object::cast_to<SpineSprite2D>(object) != nullptr || Object::cast_to<SpineSprite3D>(object) != nullptr;
+#else
+	return Object::cast_to<SpineSprite2D>(object) != nullptr;
+#endif
+}
+
+#ifdef SPINE_GODOT_EXTENSION
+void SpineSprite2DInspectorPlugin::_parse_begin(Object *object) {
+#else
+void SpineSprite2DInspectorPlugin::parse_begin(Object *object) {
+#endif
+	SpineSprite2D *sprite2d = Object::cast_to<SpineSprite2D>(object);
+#if VERSION_MAJOR > 3
+	SpineSprite3D *sprite3d = Object::cast_to<SpineSprite3D>(object);
+	if (sprite2d) {
+		sprite = sprite2d;
+	} else if (sprite3d) {
+		if (!sprite3d->get_skeleton_data_res().is_valid() || !sprite3d->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
+		return;
+	} else {
+		return;
+	}
+#else
+	sprite = sprite2d;
+#endif
 	if (!sprite) return;
 	if (!sprite->get_skeleton_data_res().is_valid() || !sprite->get_skeleton_data_res()->is_skeleton_data_loaded()) return;
 }

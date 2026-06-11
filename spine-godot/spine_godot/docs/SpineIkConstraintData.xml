@@ -64,42 +64,49 @@
 			<return type="void" />
 			<argument index="0" name="v" type="int" />
 			<description>
+				Sets the bend direction for two bone IK, either 1 or -1.
 			</description>
 		</method>
 		<method name="set_compress">
 			<return type="void" />
 			<argument index="0" name="v" type="bool" />
 			<description>
+				Sets whether one bone IK compresses the bone when the target is too close.
 			</description>
 		</method>
 		<method name="set_mix">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained rotation.
 			</description>
 		</method>
 		<method name="set_softness">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the distance from maximum reach where two bone IK rotation begins to slow.
 			</description>
 		</method>
 		<method name="set_stretch">
 			<return type="void" />
 			<argument index="0" name="v" type="bool" />
 			<description>
+				Sets whether bones stretch when the target is out of range.
 			</description>
 		</method>
 		<method name="set_target">
 			<return type="void" />
 			<argument index="0" name="v" type="SpineBoneData" />
 			<description>
+				Sets the bone data used as the IK target.
 			</description>
 		</method>
 		<method name="set_scale_y_mode">
 			<return type="void" />
 			<argument index="0" name="v" type="int" enum="SpineConstant.ScaleYMode" />
 			<description>
+				Sets how scaleY changes when compress or stretch changes scaleX.
 			</description>
 		</method>
 	</methods>

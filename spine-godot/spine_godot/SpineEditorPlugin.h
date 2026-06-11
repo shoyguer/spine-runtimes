@@ -30,7 +30,10 @@
 #pragma once
 
 #ifdef TOOLS_ENABLED
-#include "SpineSprite.h"
+#include "SpineSprite2D.h"
+#if VERSION_MAJOR > 3
+#include "SpineSprite3D.h"
+#endif
 #if VERSION_MAJOR > 3
 #ifdef SPINE_GODOT_EXTENSION
 #include <godot_cpp/classes/editor_import_plugin.hpp>
@@ -419,11 +422,24 @@ public:
 #endif
 };
 
+#if VERSION_MAJOR > 3 && defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
+class SpineSprite3DGizmoPlugin;
+#endif
+
 class SpineEditorPlugin : public EditorPlugin {
 	GDCLASS(SpineEditorPlugin, EditorPlugin)
 
-	static void _bind_methods() {
-	}
+	static void _bind_methods();
+
+#if VERSION_MAJOR > 3 && defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
+	Ref<SpineSprite3DGizmoPlugin> spine_sprite_3d_gizmo_plugin;
+	void _on_main_screen_changed(const String &p_screen_name);
+	void _on_scene_changed(Node *p_scene);
+	void _on_resources_reimported(const PackedStringArray &resources);
+	void _on_filesystem_changed();
+	void _refresh_edited_scene_spine_sprite_3d();
+	void _refresh_spine_sprite_3d_in_node(Node *p_node);
+#endif
 
 #ifdef SPINE_GODOT_EXTENSION
 	Ref<EditorImportPlugin> atlas_import_plugin;
@@ -513,7 +529,7 @@ class SpineEditorPropertyAnimationMix : public EditorProperty {
 	bool updating;
 
 	static void _bind_methods();
-	void data_changed(const String &property, const Variant &value, const String &name, bool changing);
+	void data_changed(const String &property_name, const Variant &value, const String &name, bool changing);
 
 public:
 	SpineEditorPropertyAnimationMix();
@@ -543,10 +559,10 @@ public:
 };
 #endif
 
-class SpineSpriteInspectorPlugin : public EditorInspectorPlugin {
-	GDCLASS(SpineSpriteInspectorPlugin, EditorInspectorPlugin)
+class SpineSprite2DInspectorPlugin : public EditorInspectorPlugin {
+	GDCLASS(SpineSprite2DInspectorPlugin, EditorInspectorPlugin)
 
-	SpineSprite *sprite;
+	SpineSprite2D *sprite;
 
 	static void _bind_methods();
 	void button_clicked(const String &button_name);

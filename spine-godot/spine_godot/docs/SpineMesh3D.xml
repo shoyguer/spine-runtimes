@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SpineMesh3D" inherits="MeshInstance3D" version="3.4">
+	<brief_description>
+		Internal mesh node used by [code]SpineSprite3D[/code] to render one skeleton slot.
+	</brief_description>
+	<description>
+		[code]SpineMesh3D[/code] is an internal [code]MeshInstance3D[/code]. [code]SpineSprite3D[/code] creates one [code]SpineMesh3D[/code] per skeleton slot.
+		Each instance owns an [code]ArrayMesh[/code] surface with deformed vertices, UVs, vertex colors, and indices for its slot. The parent updates geometry and materials every frame.
+		Do not add [code]SpineMesh3D[/code] nodes to your scene yourself. Use [code]SpineSprite3D[/code] for gameplay and editor preview.
+		Internal children are editor-locked so clicks select the parent [code]SpineSprite3D[/code]. Slot depth sorting uses draw order offsets on materials and vertex Z offsets.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+	</methods>
+	<members>
+	</members>
+	<signals>
+	</signals>
+	<constants>
+	</constants>
+</class>

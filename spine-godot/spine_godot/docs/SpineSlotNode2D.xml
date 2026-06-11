@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
-<class name="SpineSlotNode" inherits="Node2D" version="3.4">
+<class name="SpineSlotNode2D" inherits="Node2D" version="3.4">
 	<brief_description>
 		A node to insert other Node2D instances into the skeleton drawing order and override materials for a specific slot.
 	</brief_description>
 	<description>
 		A node to insert other Node2D instances into the skeleton drawing order and override materials for a specific slot.
-		A slot node needs to be parented to a [code]SpineSprite[/code] directly. To insert the node and its children into the skeleton drawing order, the slot name property needs to be set to the name of the slot the node should be inserted into.
+		A slot node needs to be parented to a [code]SpineSprite2D[/code] directly. To insert the node and its children into the skeleton drawing order, the slot name property needs to be set to the name of the slot the node should be inserted into.
 		The children of the slot node will be rendered on top any active attachment of the slot.
 		If any of the slot node materials are set, they will be used for the active attachment of the slot.
 		See the [code]examples/07-slot-node[/code] and [code]examples/09-custom-material[/code] examples.
@@ -16,12 +16,16 @@
 	</methods>
 	<members>
 		<member name="additive_material" type="Material" setter="set_additive_material" getter="get_additive_material">
+			Material override for the bound slot when its blend mode is additive.
 		</member>
 		<member name="multiply_material" type="Material" setter="set_multiply_material" getter="get_multiply_material">
+			Material override for the bound slot when its blend mode is multiply.
 		</member>
 		<member name="normal_material" type="Material" setter="set_normal_material" getter="get_normal_material">
+			Material override for the bound slot when its blend mode is normal.
 		</member>
 		<member name="screen_material" type="Material" setter="set_screen_material" getter="get_screen_material">
+			Material override for the bound slot when its blend mode is screen.
 		</member>
 	</members>
 	<constants>

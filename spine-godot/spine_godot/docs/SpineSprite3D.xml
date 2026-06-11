@@ -1,0 +1,332 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SpineSprite3D" inherits="Node3D" version="3.4">
+	<brief_description>
+		A node for animating and rendering a Spine skeleton in a 3D scene.
+	</brief_description>
+	<description>
+		[code]SpineSprite3D[/code] animates and draws a Spine skeleton in 3D. The skeleton lies on the local XY plane. Spine Y maps to Godot -Y.
+		Assign a shared [code]SpineSkeletonDataResource[/code] to [code]skeleton_data_res[/code]. The resource holds skeleton data, atlas data, and animation mixes.
+		Use [code]get_animation_state()[/code] to play animations. Use [code]get_skeleton()[/code] to read bones, slots, constraints, and skins. Skin and animation APIs match [code]SpineSprite2D[/code].
+		To play an animation from code, call [code]get_animation_state().set_animation("walk", true, 0)[/code]. The second argument sets looping. The third argument is the track index. Track 0 is the main layer. Call [code]get_animation_state().add_animation("jump", 0, false, 0)[/code] to queue an animation after the current one on the same track.
+		To switch skin from code, call [code]get_skeleton().set_skin_by_name("full-skins/girl")[/code] with a skin name from your skeleton data. Pass [code]null[/code] to [code]get_skeleton().set_skin()[/code] for the default skin. For mix-and-match, create a skin with [code]new_skin("custom-skin")[/code], add parts with [code]SpineSkin.add_skin(get_skeleton().get_data().find_skin("hair/brown"))[/code], then call [code]get_skeleton().set_skin(custom_skin)[/code]. After a skin switch, call [code]get_skeleton().set_slots_to_setup_pose()[/code] so slot attachments refresh.
+		When [code]update_mode[/code] is [code]Manual[/code], call [code]update_skeleton(delta)[/code] each frame after you change skin or animation.
+		Each slot renders through an internal [code]SpineMesh3D[/code] child. You do not add these children yourself.
+		Rendering options follow [code]Sprite3D[/code]: [code]pixel_size[/code], [code]flip_h[/code], [code]flip_v[/code], [code]modulate[/code], billboard mode, texture filter, and render priority. Toggle rendering behavior with inspector flags or with [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code] using [code]DrawFlags[/code] constants.
+		Set [code]update_mode[/code] to [code]Process[/code], [code]Physics[/code], or [code]Manual[/code]. In manual mode, call [code]update_skeleton()[/code] each frame.
+		Override blend materials with [code]normal_material[/code], [code]additive_material[/code], [code]multiply_material[/code], and [code]screen_material[/code]. When unset, the node uses built-in materials per slot blend mode.
+		Use [code]get_global_bone_transform()[/code] and [code]set_global_bone_transform()[/code] to read or write bone poses in global space. Call [code]set_global_bone_transform()[/code] before world transforms update.
+		Signals match [code]SpineSprite2D[/code]: animation lifecycle events, editor preview hooks, and hooks before and after animation state and bone transform updates.
+		Debug properties draw bones, regions, meshes, bounding boxes, paths, and clipping in the editor viewport.
+		Editor preview properties ([code]preview_skin[/code], [code]preview_animation[/code], [code]preview_frame[/code], [code]preview_time[/code]) appear when skeleton data is loaded.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+		<method name="generate_triangle_mesh">
+			<return type="TriangleMesh" />
+			<description>
+				Builds a combined triangle mesh from all slot surfaces. The editor uses this mesh for 3D selection and picking.
+			</description>
+		</method>
+		<method name="get_draw_flag">
+			<return type="bool" />
+			<argument index="0" name="flag" type="int" enum="SpineSprite3D.DrawFlags" />
+			<description>
+				Returns the value of the draw flag at [code]flag[/code]. Use [code]FLAG_TRANSPARENT[/code], [code]FLAG_SHADED[/code], [code]FLAG_DOUBLE_SIDED[/code], [code]FLAG_DISABLE_DEPTH_TEST[/code], or [code]FLAG_FIXED_SIZE[/code].
+			</description>
+		</method>
+		<method name="get_animation_state">
+			<return type="SpineAnimationState" />
+			<description>
+				Returns the animation state for this sprite. Use [code]set_animation()[/code] and [code]add_animation()[/code] on the result to change playback from code.
+			</description>
+		</method>
+		<method name="get_global_bone_transform">
+			<return type="Transform3D" />
+			<argument index="0" name="bone_name" type="String" />
+			<description>
+				Returns the global transform of the named bone.
+			</description>
+		</method>
+		<method name="get_skeleton">
+			<return type="SpineSkeleton" />
+			<description>
+				Returns the live skeleton for this sprite. Use [code]set_skin()[/code], [code]set_skin_by_name()[/code], and [code]set_slots_to_setup_pose()[/code] on the result to change skin from code.
+			</description>
+		</method>
+		<method name="get_time_scale">
+			<return type="float" />
+			<description>
+				Returns the animation playback speed multiplier applied during [code]update_skeleton()[/code].
+			</description>
+		</method>
+		<method name="is_flipped_h">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the sprite mirrors horizontally around the skeleton bounds center.
+			</description>
+		</method>
+		<method name="is_flipped_v">
+			<return type="bool" />
+			<description>
+				Returns [code]true[/code] when the sprite mirrors vertically around the skeleton bounds center.
+			</description>
+		</method>
+		<method name="new_skin">
+			<return type="SpineSkin" />
+			<argument index="0" name="name" type="String" />
+			<description>
+				Creates a new empty skin on the skeleton. Add attachments from other skins with [code]SpineSkin.add_skin()[/code].
+			</description>
+		</method>
+		<method name="refresh_display">
+			<return type="void" />
+			<description>
+				Reloads atlas page textures from disk, rebuilds slot meshes, and reapplies materials. Call this when slot surfaces stay gray after atlas PNG import or after switching the editor to the 3D tab.
+			</description>
+		</method>
+		<method name="set_draw_flag">
+			<return type="void" />
+			<argument index="0" name="flag" type="int" enum="SpineSprite3D.DrawFlags" />
+			<argument index="1" name="enabled" type="bool" />
+			<description>
+				Sets the draw flag at [code]flag[/code]. Each [code]DrawFlags[/code] constant maps to one inspector toggle: [code]transparent[/code], [code]shaded[/code], [code]double_sided[/code], [code]no_depth_test[/code], or [code]fixed_size[/code].
+			</description>
+		</method>
+		<method name="on_skeleton_data_changed">
+			<return type="void" />
+			<description>
+				Reloads internal skeleton and animation objects after [code]skeleton_data_res[/code] changes. Called automatically when the resource updates.
+			</description>
+		</method>
+		<method name="set_global_bone_transform">
+			<return type="void" />
+			<argument index="0" name="bone_name" type="String" />
+			<argument index="1" name="global_transform" type="Transform3D" />
+			<description>
+				Sets the global transform of the named bone. Call this before world transforms are computed for the frame.
+			</description>
+		</method>
+		<method name="set_time_scale">
+			<return type="void" />
+			<argument index="0" name="v" type="float" />
+			<description>
+				Sets the animation playback speed multiplier applied during [code]update_skeleton()[/code].
+			</description>
+		</method>
+		<method name="update_skeleton">
+			<return type="void" />
+			<argument index="0" name="delta" type="float" />
+			<description>
+				Updates the animation state, applies it to the skeleton, and rebuilds slot meshes. Required each frame when [code]update_mode[/code] is [code]Manual[/code].
+			</description>
+		</method>
+		<method name="visual_settings_changed">
+			<return type="void" />
+			<description>
+				Rebuilds slot meshes and editor pick geometry after visual properties change. The engine calls this when you change flip, modulate, materials, or draw flags.
+			</description>
+		</method>
+	</methods>
+	<members>
+		<member name="additive_material" type="Material" setter="set_additive_material" getter="get_additive_material">
+			Optional material for additive blend slots. Overrides the default internal material for every additive slot.
+		</member>
+		<member name="billboard" type="int" setter="set_billboard_mode" getter="get_billboard_mode" enum="BaseMaterial3D.BillboardMode" default="0">
+			Billboard mode for slot materials. Matches [code]Sprite3D[/code] billboard behavior.
+		</member>
+		<member name="bones" type="bool" setter="set_debug_bones" getter="get_debug_bones" default="false">
+			Draws debug lines for all bones in the editor.
+		</member>
+		<member name="bones_color" type="Color" setter="set_debug_bones_color" getter="get_debug_bones_color" default="Color( 1, 1, 0, 0.5 )">
+			Color used when [code]bones[/code] debug drawing is enabled.
+		</member>
+		<member name="bones_thickness" type="float" setter="set_debug_bones_thickness" getter="get_debug_bones_thickness" default="5.0">
+			Line thickness for bone debug drawing in the editor.
+		</member>
+		<member name="bounding_boxes" type="bool" setter="set_debug_bounding_boxes" getter="get_debug_bounding_boxes" default="false">
+			Draws bounding box attachments in the editor.
+		</member>
+		<member name="bounding_boxes_color" type="Color" setter="set_debug_bounding_boxes_color" getter="get_debug_bounding_boxes_color" default="Color( 0, 1, 0, 0.5 )">
+			Color used when [code]bounding_boxes[/code] debug drawing is enabled.
+		</member>
+		<member name="clipping" type="bool" setter="set_debug_clipping" getter="get_debug_clipping" default="false">
+			Draws clipping attachment outlines in the editor.
+		</member>
+		<member name="double_sided" type="bool" setter="set_draw_flag" getter="get_draw_flag" default="true">
+			When [code]true[/code], slot materials render both faces. When [code]false[/code], back faces are culled.
+		</member>
+		<member name="fixed_size" type="bool" setter="set_draw_flag" getter="get_draw_flag" default="false">
+			Keeps billboarded slots at a fixed screen size when billboard mode is active.
+		</member>
+		<member name="flip_h" type="bool" setter="set_flip_h" getter="is_flipped_h" default="false">
+			Mirrors the skeleton horizontally around the bounds center before [code]pixel_size[/code] is applied.
+		</member>
+		<member name="flip_v" type="bool" setter="set_flip_v" getter="is_flipped_v" default="false">
+			Mirrors the skeleton vertically around the bounds center before [code]pixel_size[/code] is applied.
+		</member>
+		<member name="meshes" type="bool" setter="set_debug_meshes" getter="get_debug_meshes" default="false">
+			Draws mesh attachment wireframes in the editor.
+		</member>
+		<member name="meshes_color" type="Color" setter="set_debug_meshes_color" getter="get_debug_meshes_color" default="Color( 0, 0, 1, 0.5 )">
+			Color used when [code]meshes[/code] debug drawing is enabled.
+		</member>
+		<member name="modulate" type="Color" setter="set_modulate" getter="get_modulate" default="Color( 1, 1, 1, 1 )">
+			Color multiplier applied to every slot tint during mesh generation.
+		</member>
+		<member name="multiply_material" type="Material" setter="set_multiply_material" getter="get_multiply_material">
+			Optional material for multiply blend slots. Overrides the default internal material for every multiply slot.
+		</member>
+		<member name="no_depth_test" type="bool" setter="set_draw_flag" getter="get_draw_flag" default="false">
+			When [code]true[/code], slot materials skip depth testing.
+		</member>
+		<member name="normal_material" type="Material" setter="set_normal_material" getter="get_normal_material">
+			Optional material for normal blend slots. Overrides the default internal material for every normal slot.
+		</member>
+		<member name="paths" type="bool" setter="set_debug_paths" getter="get_debug_paths" default="false">
+			Draws path attachment guides in the editor.
+		</member>
+		<member name="paths_clipping" type="Color" setter="set_debug_clipping_color" getter="get_debug_clipping_color" default="Color( 1, 0, 0, 0.5 )">
+			Color used when [code]clipping[/code] debug drawing is enabled.
+		</member>
+		<member name="paths_color" type="Color" setter="set_debug_paths_color" getter="get_debug_paths_color" default="Color( 1, 0.498039, 0, 0.466667 )">
+			Color used when [code]paths[/code] debug drawing is enabled.
+		</member>
+		<member name="pixel_size" type="float" setter="set_pixel_size" getter="get_pixel_size" default="1.0">
+			Scales skeleton units to Godot 3D units. Lower values shrink the sprite in world space.
+		</member>
+		<member name="regions" type="bool" setter="set_debug_regions" getter="get_debug_regions" default="false">
+			Draws region attachment outlines in the editor.
+		</member>
+		<member name="regions_color" type="Color" setter="set_debug_regions_color" getter="get_debug_regions_color" default="Color( 0, 0, 1, 0.5 )">
+			Color used when [code]regions[/code] debug drawing is enabled.
+		</member>
+		<member name="render_priority" type="int" setter="set_sprite_render_priority" getter="get_sprite_render_priority" default="0">
+			Base render priority for slot materials. Each slot adds its draw order offset to this value.
+		</member>
+		<member name="root" type="bool" setter="set_debug_root" getter="get_debug_root" default="false">
+			Draws the root bone in the editor.
+		</member>
+		<member name="root_color" type="Color" setter="set_debug_root_color" getter="get_debug_root_color" default="Color( 1, 1, 1, 0.5 )">
+			Color used when [code]root[/code] debug drawing is enabled.
+		</member>
+		<member name="screen_material" type="Material" setter="set_screen_material" getter="get_screen_material">
+			Optional material for screen blend slots. Overrides the default internal material for every screen slot.
+		</member>
+		<member name="shaded" type="bool" setter="set_draw_flag" getter="get_draw_flag" default="false">
+			When [code]true[/code], slot materials use per-pixel shading. When [code]false[/code], materials stay unshaded.
+		</member>
+		<member name="skeleton_data_res" type="SpineSkeletonDataResource" setter="set_skeleton_data_res" getter="get_skeleton_data_res">
+			Resource with skeleton data, atlas data, and animation mixes for this sprite.
+		</member>
+		<member name="texture_filter" type="int" setter="set_texture_filter" getter="get_texture_filter" enum="BaseMaterial3D.TextureFilter" default="5">
+			Texture filter mode applied to slot albedo textures.
+		</member>
+		<member name="transparent" type="bool" setter="set_draw_flag" getter="get_draw_flag" default="true">
+			When [code]true[/code], slot materials use alpha blending.
+		</member>
+		<member name="update_mode" type="int" setter="set_update_mode" getter="get_update_mode" enum="SpineConstant.UpdateMode" default="0">
+			Controls when [code]update_skeleton()[/code] runs: process step, physics step, or manual calls only.
+		</member>
+	</members>
+	<signals>
+		<signal name="_internal_spine_objects_invalidated">
+			<description>
+				Emitted when internal Spine skeleton or animation objects are destroyed and recreated. Advanced tooling uses this to drop stale references.
+			</description>
+		</signal>
+		<signal name="animation_completed">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<description>
+				Emitted when a track entry completes a loop. May fire during mix out.
+			</description>
+		</signal>
+		<signal name="animation_disposed">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<description>
+				Emitted when a track entry is disposed. Do not keep references to the entry after this signal.
+			</description>
+		</signal>
+		<signal name="animation_ended">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<description>
+				Emitted when a track entry will never apply again after it was the current entry.
+			</description>
+		</signal>
+		<signal name="animation_event">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<argument index="3" name="event" type="Object" />
+			<description>
+				Emitted when a Spine event fires on a track entry. May fire during mix out.
+			</description>
+		</signal>
+		<signal name="animation_interrupted">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<description>
+				Emitted when another entry replaces this entry as the current track entry.
+			</description>
+		</signal>
+		<signal name="animation_started">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<argument index="1" name="animation_state" type="Object" />
+			<argument index="2" name="track_entry" type="Object" />
+			<description>
+				Emitted when a track entry becomes the current entry on its track.
+			</description>
+		</signal>
+		<signal name="before_animation_state_apply">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<description>
+				Emitted before the animation state applies poses to the skeleton.
+			</description>
+		</signal>
+		<signal name="before_animation_state_update">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<description>
+				Emitted before the animation state advances time for the frame.
+			</description>
+		</signal>
+		<signal name="before_world_transforms_change">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<description>
+				Emitted before bone world transforms are computed.
+			</description>
+		</signal>
+		<signal name="world_transforms_changed">
+			<argument index="0" name="spine_sprite" type="Object" />
+			<description>
+				Emitted after bone world transforms are computed.
+			</description>
+		</signal>
+	</signals>
+	<constants>
+		<constant name="FLAG_DISABLE_DEPTH_TEST" value="3" enum="DrawFlags">
+			Draw flag index for [code]no_depth_test[/code]. Passed to [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code].
+		</constant>
+		<constant name="FLAG_DOUBLE_SIDED" value="2" enum="DrawFlags">
+			Draw flag index for [code]double_sided[/code]. Passed to [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code].
+		</constant>
+		<constant name="FLAG_FIXED_SIZE" value="4" enum="DrawFlags">
+			Draw flag index for [code]fixed_size[/code]. Passed to [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code].
+		</constant>
+		<constant name="FLAG_MAX" value="5" enum="DrawFlags">
+			Number of draw flags. Used internally.
+		</constant>
+		<constant name="FLAG_SHADED" value="1" enum="DrawFlags">
+			Draw flag index for [code]shaded[/code]. Passed to [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code].
+		</constant>
+		<constant name="FLAG_TRANSPARENT" value="0" enum="DrawFlags">
+			Draw flag index for [code]transparent[/code]. Passed to [code]set_draw_flag()[/code] and [code]get_draw_flag()[/code].
+		</constant>
+	</constants>
+</class>

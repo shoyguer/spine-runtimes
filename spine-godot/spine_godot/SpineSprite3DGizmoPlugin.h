@@ -30,57 +30,20 @@
 #pragma once
 
 #include "SpineCommon.h"
-#include "SpineSprite.h"
-#ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node2d.hpp>
-#else
-#include "scene/2d/node_2d.h"
-#include "scene/resources/material.h"
-#endif
 
-class SpineSlotNode : public Node2D {
-	GDCLASS(SpineSlotNode, Node2D)
+#if VERSION_MAJOR > 3 && defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
 
-protected:
-	String slot_name;
-	int slot_index;
-	Ref<Material> normal_material;
-	Ref<Material> additive_material;
-	Ref<Material> multiply_material;
-	Ref<Material> screen_material;
+#include "editor/scene/3d/node_3d_editor_gizmos.h"
 
-	static void _bind_methods();
-	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite *sprite);
+class SpineSprite3DGizmoPlugin : public EditorNode3DGizmoPlugin {
+	GDCLASS(SpineSprite3DGizmoPlugin, EditorNode3DGizmoPlugin);
 
 public:
-	SpineSlotNode();
-
-	void set_slot_name(const String &_slot_name);
-
-	String get_slot_name();
-
-	int get_slot_index() {
-		return slot_index;
-	}
-
-	Ref<Material> get_normal_material();
-
-	void set_normal_material(Ref<Material> material);
-
-	Ref<Material> get_additive_material();
-
-	void set_additive_material(Ref<Material> material);
-
-	Ref<Material> get_multiply_material();
-
-	void set_multiply_material(Ref<Material> material);
-
-	Ref<Material> get_screen_material();
-
-	void set_screen_material(Ref<Material> material);
+	bool has_gizmo(Node3D *p_spatial) override;
+	String get_gizmo_name() const override;
+	int get_priority() const override;
+	bool can_be_hidden() const override;
+	void redraw(EditorNode3DGizmo *p_gizmo) override;
 };
+
+#endif

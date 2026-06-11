@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<class name="SpineMesh2D" inherits="Node2D" version="3.4">
+	<brief_description>
+		Internal mesh node used by [code]SpineSprite2D[/code] to render one skeleton slot.
+	</brief_description>
+	<description>
+		[code]SpineMesh2D[/code] is an internal rendering node. [code]SpineSprite2D[/code] creates one [code]SpineMesh2D[/code] per skeleton slot.
+		Each instance holds deformed vertices, UVs, vertex colors, and indices for its slot. The parent updates mesh data every frame and issues canvas draw commands.
+		Do not add [code]SpineMesh2D[/code] nodes to your scene yourself. Use [code]SpineSprite2D[/code] for gameplay and editor preview.
+		Slot draw order follows skeleton slot order. [code]SpineSlotNode2D[/code] children insert extra nodes into the same draw order when you need custom content on a slot.
+	</description>
+	<tutorials>
+	</tutorials>
+	<methods>
+	</methods>
+	<members>
+	</members>
+	<signals>
+	</signals>
+	<constants>
+	</constants>
+</class>

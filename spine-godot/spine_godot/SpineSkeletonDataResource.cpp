@@ -238,6 +238,11 @@ SpineSkeletonDataResource::~SpineSkeletonDataResource() {
 #ifdef TOOLS_ENABLED
 #if VERSION_MAJOR > 3
 void SpineSkeletonDataResource::_on_resources_reimported(const PackedStringArray &resources) {
+	bool atlas_textures_updated = false;
+	if (atlas_res.is_valid()) {
+		atlas_res->reload_page_textures();
+		atlas_textures_updated = true;
+	}
 	for (int i = 0; i < resources.size(); i++) {
 		if (atlas_res.is_valid() && atlas_res->get_path() == resources[i]) {
 #ifdef SPINE_GODOT_EXTENSION
@@ -255,9 +260,17 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PackedStringArray
 			update_skeleton_data();
 		}
 	}
+	if (atlas_textures_updated) {
+		emit_signal(SNAME("skeleton_data_changed"));
+	}
 }
 #else
 void SpineSkeletonDataResource::_on_resources_reimported(const PoolStringArray &resources) {
+	bool atlas_textures_updated = false;
+	if (atlas_res.is_valid()) {
+		atlas_res->reload_page_textures();
+		atlas_textures_updated = true;
+	}
 	for (int i = 0; i < resources.size(); i++) {
 		if (atlas_res.is_valid() && atlas_res->get_path() == resources[i]) {
 			atlas_res = ResourceLoader::load(resources[i]);
@@ -266,6 +279,9 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PoolStringArray &
 			skeleton_file_res = ResourceLoader::load(resources[i]);
 			update_skeleton_data();
 		}
+	}
+	if (atlas_textures_updated) {
+		emit_signal(SNAME("skeleton_data_changed"));
 	}
 }
 #endif
@@ -354,13 +370,13 @@ void SpineSkeletonDataResource::get_animation_names(Vector<String> &animation_na
 	auto &animations = skeleton_data->getAnimations();
 	for (size_t i = 0; i < animations.size(); ++i) {
 		auto animation = animations[i];
-		String name;
+		String entry_name;
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
-		name = String::utf8(animation->getName().buffer());
+		entry_name = String::utf8(animation->getName().buffer());
 #else
-		name.parse_utf8(animation->getName().buffer());
+		entry_name.parse_utf8(animation->getName().buffer());
 #endif
-		animation_names.push_back(name);
+		animation_names.push_back(entry_name);
 	}
 }
 
@@ -374,13 +390,13 @@ void SpineSkeletonDataResource::get_skin_names(Vector<String> &skin_names) const
 	auto &skins = skeleton_data->getSkins();
 	for (size_t i = 0; i < skins.size(); ++i) {
 		auto skin = skins[i];
-		String name;
+		String entry_name;
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
-		name = String::utf8(skin->getName().buffer());
+		entry_name = String::utf8(skin->getName().buffer());
 #else
-		name.parse_utf8(skin->getName().buffer());
+		entry_name.parse_utf8(skin->getName().buffer());
 #endif
-		skin_names.push_back(name);
+		skin_names.push_back(entry_name);
 	}
 }
 
@@ -394,13 +410,13 @@ void SpineSkeletonDataResource::get_slot_names(Vector<String> &slot_names) {
 	auto &slots = skeleton_data->getSlots();
 	for (size_t i = 0; i < slots.size(); ++i) {
 		auto slot = slots[i];
-		String name;
+		String entry_name;
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
-		name = String::utf8(slot->getName().buffer());
+		entry_name = String::utf8(slot->getName().buffer());
 #else
-		name.parse_utf8(slot->getName().buffer());
+		entry_name.parse_utf8(slot->getName().buffer());
 #endif
-		slot_names.push_back(name);
+		slot_names.push_back(entry_name);
 	}
 }
 
@@ -414,13 +430,13 @@ void SpineSkeletonDataResource::get_bone_names(Vector<String> &bone_names) {
 	auto &bones = skeleton_data->getBones();
 	for (size_t i = 0; i < bones.size(); ++i) {
 		auto bone = bones[i];
-		String name;
+		String entry_name;
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
-		name = String::utf8(bone->getName().buffer());
+		entry_name = String::utf8(bone->getName().buffer());
 #else
-		name.parse_utf8(bone->getName().buffer());
+		entry_name.parse_utf8(bone->getName().buffer());
 #endif
-		bone_names.push_back(name);
+		bone_names.push_back(entry_name);
 	}
 }
 
@@ -462,13 +478,13 @@ void SpineSkeletonDataResource::update_mixes() {
 		if (!from) {
 			ERR_PRINT(vformat("Failed to set animation mix %s->%s. Animation %s does "
 							  "not exist in skeleton.",
-							  from, to, from));
+							  mix->get_from(), mix->get_to(), mix->get_from()));
 			continue;
 		}
 		if (!to) {
 			ERR_PRINT(vformat("Failed to set animation mix %s->%s. Animation %s does "
 							  "not exist in skeleton.",
-							  from, to, to));
+							  mix->get_from(), mix->get_to(), mix->get_to()));
 			continue;
 		}
 		animation_state_data->setMix(*from, *to, mix->get_mix());
@@ -567,13 +583,13 @@ Ref<SpinePhysicsConstraintData> SpineSkeletonDataResource::find_physics_constrai
 
 String SpineSkeletonDataResource::get_skeleton_name() const {
 	SPINE_CHECK(skeleton_data, "")
-	String name;
+	String skeleton_name;
 #if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
-	name = String::utf8(skeleton_data->getName().buffer());
+	skeleton_name = String::utf8(skeleton_data->getName().buffer());
 #else
-	name.parse_utf8(skeleton_data->getName().buffer());
+	skeleton_name.parse_utf8(skeleton_data->getName().buffer());
 #endif
-	return name;
+	return skeleton_name;
 }
 
 Array SpineSkeletonDataResource::get_bones() const {

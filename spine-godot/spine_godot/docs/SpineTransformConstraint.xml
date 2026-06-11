@@ -67,59 +67,69 @@
 		<method name="is_active">
 			<return type="bool" />
 			<description>
+				Returns whether this transform constraint is active. When inactive, the constraint is not applied.
 			</description>
 		</method>
 		<method name="set_active">
 			<return type="void" />
 			<argument index="0" name="v" type="bool" />
 			<description>
+				Sets whether this transform constraint is active. When inactive, the constraint is not applied.
 			</description>
 		</method>
 		<method name="set_mix_rotate">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained rotation.
 			</description>
 		</method>
 		<method name="set_mix_scale_x">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained scale X.
 			</description>
 		</method>
 		<method name="set_mix_scale_y">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained scale Y.
 			</description>
 		</method>
 		<method name="set_mix_shear_y">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained shear Y.
 			</description>
 		</method>
 		<method name="set_mix_x">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation X.
 			</description>
 		</method>
 		<method name="set_mix_y">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation Y.
 			</description>
 		</method>
 		<method name="set_target">
 			<return type="void" />
 			<argument index="0" name="v" type="SpineBone" />
 			<description>
+				Sets the target bone whose world transform is copied to constrained bones.
 			</description>
 		</method>
 		<method name="update">
 			<return type="void" />
 			<description>
+				Applies the transform constraint so constrained bones match the target bone transform.
 			</description>
 		</method>
 	</methods>

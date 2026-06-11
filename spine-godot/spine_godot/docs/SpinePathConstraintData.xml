@@ -1,8 +1,11 @@
 <?xml version="1.0" encoding="UTF-8" ?>
 <class name="SpinePathConstraintData" inherits="SpineConstraintData" version="3.4">
 	<brief_description>
+		Stores the setup pose for a path constraint.
 	</brief_description>
 	<description>
+		Stores the setup pose for a path constraint. A path constraint adjusts constrained bones so they follow a path attachment on a slot.
+		See [url]http://esotericsoftware.com/spine-path-constraints[/url] in the Spine User Guide.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -77,60 +80,70 @@
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained rotation.
 			</description>
 		</method>
 		<method name="set_mix_x">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation X.
 			</description>
 		</method>
 		<method name="set_mix_y">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the mix percentage between constrained and unconstrained translation Y.
 			</description>
 		</method>
 		<method name="set_offset_rotation">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the offset added to constrained bone rotation.
 			</description>
 		</method>
 		<method name="set_position">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the position along the path.
 			</description>
 		</method>
 		<method name="set_position_mode">
 			<return type="void" />
 			<argument index="0" name="v" type="int" enum="SpineConstant.PositionMode" />
 			<description>
+				Sets the mode for positioning the first bone on the path.
 			</description>
 		</method>
 		<method name="set_rotate_mode">
 			<return type="void" />
 			<argument index="0" name="v" type="int" enum="SpineConstant.RotateMode" />
 			<description>
+				Sets the mode for adjusting constrained bone rotation.
 			</description>
 		</method>
 		<method name="set_spacing">
 			<return type="void" />
 			<argument index="0" name="v" type="float" />
 			<description>
+				Sets the spacing between constrained bones.
 			</description>
 		</method>
 		<method name="set_spacing_mode">
 			<return type="void" />
 			<argument index="0" name="v" type="int" enum="SpineConstant.SpacingMode" />
 			<description>
+				Sets the mode for positioning bones after the first bone on the path.
 			</description>
 		</method>
 		<method name="set_target">
 			<return type="void" />
 			<argument index="0" name="v" type="SpineSlotData" />
 			<description>
+				Sets the slot data whose path attachment drives this constraint.
 			</description>
 		</method>
 	</methods>

@@ -5,7 +5,7 @@
 	</brief_description>
 	<description>
 		Resource used to spawn new [code]SpineSkeleton[/code] instances. The skeleton data resource consists of the skeleton data loaded from a .json or .skel [code]SpineSkeletonFileResource[/code], the texture atlas loaded from a .atlas and .png files making up a [code]SpineAtlasResource[/code], as well as animation mixes, governing for how long two specific animations should be cross faded via [code]SpineAnimationState[/code].
-		A single skeleton data resource can be shared among multiple [code]SpineSprite[/code] instances to avoid duplication of resources.
+		A single skeleton data resource can be shared among multiple [code]SpineSprite2D[/code] and [code]SpineSprite3D[/code] instances to avoid duplication of resources. Use [code]find_skin()[/code] and [code]find_animation()[/code] on this resource to look up skin and animation names before you pass them to a sprite at runtime.
 	</description>
 	<tutorials>
 	</tutorials>
@@ -197,21 +197,27 @@
 	</methods>
 	<members>
 		<member name="animation_mixes" type="Array" setter="set_animation_mixes" getter="get_animation_mixes" default="[  ]">
+			Array of animation mix durations between named animation pairs. Used by [code]SpineAnimationState[/code] for crossfades.
 		</member>
 		<member name="atlas_res" type="SpineAtlasResource" setter="set_atlas_res" getter="get_atlas_res">
+			Atlas resource with texture pages referenced by skeleton attachments.
 		</member>
 		<member name="default_mix" type="float" setter="set_default_mix" getter="get_default_mix" default="0.0">
+			Default crossfade duration in seconds when no explicit mix entry exists.
 		</member>
 		<member name="skeleton_file_res" type="SpineSkeletonFileResource" setter="set_skeleton_file_res" getter="get_skeleton_file_res">
+			Skeleton file resource with exported [code].json[/code] or [code].skel[/code] data.
 		</member>
 	</members>
 	<signals>
 		<signal name="_internal_spine_objects_invalidated">
 			<description>
+				Emitted when internal Spine data objects are recreated. Advanced tooling uses this to drop stale references.
 			</description>
 		</signal>
 		<signal name="skeleton_data_changed">
 			<description>
+				Emitted after skeleton data is reloaded from atlas and skeleton file resources.
 			</description>
 		</signal>
 	</signals>

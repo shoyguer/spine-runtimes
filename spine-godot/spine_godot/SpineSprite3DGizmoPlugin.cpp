@@ -27,59 +27,37 @@
  * THE SPINE RUNTIMES, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
  *****************************************************************************/
 
-#pragma once
-
 #include "SpineCommon.h"
-#include "SpineSkeleton.h"
-#include "SpineSprite.h"
-#ifdef SPINE_GODOT_EXTENSION
-#include <godot_cpp/classes/node2d.hpp>
-#else
-#include "scene/2d/node_2d.h"
-#endif
 
-class SpineBoneNode : public Node2D {
-	GDCLASS(SpineBoneNode, Node2D)
+#if VERSION_MAJOR > 3 && defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
 
-protected:
-	String bone_name;
-	SpineConstant::BoneMode bone_mode;
-	bool enabled;
-	Color debug_color;
-	float debug_thickness;
+#include "SpineSprite3DGizmoPlugin.h"
+#include "SpineSprite3D.h"
 
-	static void _bind_methods();
-	void _notification(int what);
-	void _get_property_list(List<PropertyInfo> *list) const;
-	bool _get(const StringName &property, Variant &value) const;
-	bool _set(const StringName &property, const Variant &value);
-	void on_before_world_transforms_change(const Variant &_sprite);
-	void on_world_transforms_changed(const Variant &_sprite);
-	void update_transform(SpineSprite *sprite);
-	void init_transform(SpineSprite *sprite);
-	void draw();
+bool SpineSprite3DGizmoPlugin::has_gizmo(Node3D *p_spatial) {
+	return Object::cast_to<SpineSprite3D>(p_spatial) != nullptr;
+}
 
-public:
-	SpineBoneNode() : bone_mode(SpineConstant::BoneMode_Follow), enabled(true), debug_color(Color::hex(0xff000077)), debug_thickness(5) {
+String SpineSprite3DGizmoPlugin::get_gizmo_name() const {
+	return "SpineSprite3D";
+}
+
+int SpineSprite3DGizmoPlugin::get_priority() const {
+	return -1;
+}
+
+bool SpineSprite3DGizmoPlugin::can_be_hidden() const {
+	return false;
+}
+
+void SpineSprite3DGizmoPlugin::redraw(EditorNode3DGizmo *p_gizmo) {
+	SpineSprite3D *sprite = Object::cast_to<SpineSprite3D>(p_gizmo->get_node_3d());
+	p_gizmo->clear();
+
+	Ref<TriangleMesh> triangle_mesh = sprite->generate_triangle_mesh();
+	if (triangle_mesh.is_valid()) {
+		p_gizmo->add_collision_triangles(triangle_mesh);
 	}
+}
 
-	SpineConstant::BoneMode get_bone_mode();
-
-	void set_bone_mode(SpineConstant::BoneMode bone_mode);
-
-	void set_enabled(bool _enabled);
-
-	bool get_enabled();
-
-	void set_debug_thickness(float _thickness);
-
-	float get_debug_thickness();
-
-	void set_debug_color(Color _color);
-
-	Color get_debug_color();
-
-	SpineSprite *find_parent_sprite() const;
-
-	Ref<SpineBone> find_bone() const;
-};
+#endif
