@@ -33,6 +33,35 @@
 #include "SpineSprite3D.h"
 #endif
 #include "SpineSkeleton.h"
+#include "SpineSkeletonDataResource.h"
+
+String spine_resolve_preview_skin(const Ref<SpineSkeletonDataResource> &data_res, const String &skin) {
+	String resolved = skin;
+	if (resolved == SPINE_PREVIEW_LEGACY_DEFAULT_SKIN || resolved == SPINE_PREVIEW_NONE) {
+		resolved = "";
+	}
+	if (!resolved.is_empty()) {
+		return resolved;
+	}
+	if (!data_res.is_valid() || !data_res->is_skeleton_data_loaded()) {
+		return "";
+	}
+	spine::SkeletonData *skeleton_data = data_res->get_skeleton_data();
+	if (!skeleton_data) {
+		return "";
+	}
+	spine::Skin *default_skin = skeleton_data->getDefaultSkin();
+	if (!default_skin) {
+		return "";
+	}
+#if (VERSION_MAJOR >= 4 && VERSION_MINOR >= 5)
+	return String::utf8(default_skin->getName().buffer());
+#else
+	String name;
+	name.parse_utf8(default_skin->getName().buffer());
+	return name;
+#endif
+}
 
 Ref<SpineSkeletonDataResource> spine_sprite_get_skeleton_data_res(Object *owner) {
 	if (!owner) return Ref<SpineSkeletonDataResource>();

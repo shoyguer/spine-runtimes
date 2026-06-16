@@ -45,3 +45,21 @@ Ref<SpineSkeleton> spine_sprite_get_skeleton_ref(Object *owner);
 
 Transform3D spine_transform2d_to_local_3d(const Transform2D &t);
 Transform2D spine_transform3d_to_local_2d(const Transform3D &t);
+
+inline constexpr const char *SPINE_PREVIEW_NONE = "None";
+inline constexpr const char *SPINE_PREVIEW_LEGACY_EMPTY = "-- Empty --";
+inline constexpr const char *SPINE_PREVIEW_LEGACY_DEFAULT_SKIN = "Default";
+
+String spine_resolve_preview_skin(const Ref<SpineSkeletonDataResource> &data_res, const String &skin);
+
+inline String spine_normalize_preview_animation(const String &animation) {
+	if (animation == SPINE_PREVIEW_LEGACY_EMPTY) {
+		return SPINE_PREVIEW_NONE;
+	}
+	return animation;
+}
+
+inline bool spine_preview_animation_is_none(const String &animation) {
+	const String normalized = spine_normalize_preview_animation(animation);
+	return normalized.is_empty() || normalized == SPINE_PREVIEW_NONE;
+}

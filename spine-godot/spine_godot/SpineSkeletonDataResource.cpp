@@ -60,6 +60,10 @@
 #endif
 #endif
 
+#include <spine/MeshAttachment.h>
+#include <spine/RegionAttachment.h>
+#include <spine/Skin.h>
+
 void SpineAnimationMix::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_from", "from"), &SpineAnimationMix::set_from);
 	ClassDB::bind_method(D_METHOD("get_from"), &SpineAnimationMix::get_from);
@@ -149,6 +153,7 @@ void SpineSkeletonDataResource::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_reference_scale"), &SpineSkeletonDataResource::get_reference_scale);
 	ClassDB::bind_method(D_METHOD("set_reference_scale", "reference_scale"), &SpineSkeletonDataResource::set_reference_scale);
 	ClassDB::bind_method(D_METHOD("update_skeleton_data"), &SpineSkeletonDataResource::update_skeleton_data);
+	ClassDB::bind_method(D_METHOD("schedule_update_skeleton_data"), &SpineSkeletonDataResource::schedule_update_skeleton_data);
 
 	ADD_SIGNAL(MethodInfo("skeleton_data_changed"));
 	ADD_SIGNAL(MethodInfo("_internal_spine_objects_invalidated"));
@@ -191,19 +196,22 @@ SpineSkeletonDataResource::SpineSkeletonDataResource() : default_mix(0), skeleto
 
 #ifdef TOOLS_ENABLED
 #if VERSION_MAJOR > 3
-	if (Engine::get_singleton()->is_editor_hint()) {
-		EditorFileSystem *efs = get_editor_file_system();
-		if (efs) {
-			// Store the ObjectID for safe validation in destructor
-			editor_file_system_id = efs->get_instance_id();
-			efs->connect("resources_reimported", callable_mp(this, &SpineSkeletonDataResource::_on_resources_reimported));
+	editor_reimport_callable = callable_mp(this, &SpineSkeletonDataResource::_on_resources_reimported);
+	if (Engine *engine = Engine::get_singleton()) {
+		if (engine->is_editor_hint()) {
+			EditorFileSystem *efs = get_editor_file_system();
+			if (efs) {
+				editor_file_system_id = efs->get_instance_id();
+				if (!efs->is_connected(SNAME("resources_reimported"), editor_reimport_callable)) {
+					efs->connect(SNAME("resources_reimported"), editor_reimport_callable);
+				}
+			}
 		}
 	}
 #else
 	if (Engine::get_singleton()->is_editor_hint()) {
 		EditorFileSystem *efs = EditorFileSystem::get_singleton();
 		if (efs) {
-			// Store the ObjectID for safe validation in destructor
 			editor_file_system_id = efs->get_instance_id();
 			efs->connect("resources_reimported", this, "_on_resources_reimported");
 		}
@@ -213,31 +221,35 @@ SpineSkeletonDataResource::SpineSkeletonDataResource() : default_mix(0), skeleto
 }
 
 SpineSkeletonDataResource::~SpineSkeletonDataResource() {
+	shutting_down = true;
+	update_skeleton_data_pending = false;
 #ifdef TOOLS_ENABLED
 #if VERSION_MAJOR > 3
-	if (Engine::get_singleton()->is_editor_hint()) {
-		EditorFileSystem *efs = Object::cast_to<EditorFileSystem>(ObjectDB::get_instance(editor_file_system_id));
-		if (efs && efs->is_connected("resources_reimported", callable_mp(this, &SpineSkeletonDataResource::_on_resources_reimported))) {
-			efs->disconnect("resources_reimported", callable_mp(this, &SpineSkeletonDataResource::_on_resources_reimported));
-		}
+	EditorFileSystem *efs = Object::cast_to<EditorFileSystem>(ObjectDB::get_instance(editor_file_system_id));
+	if (efs && efs->is_connected(SNAME("resources_reimported"), editor_reimport_callable)) {
+		efs->disconnect(SNAME("resources_reimported"), editor_reimport_callable);
 	}
 #else
-	if (Engine::get_singleton()->is_editor_hint()) {
-		EditorFileSystem *efs = Object::cast_to<EditorFileSystem>(ObjectDB::get_instance(editor_file_system_id));
-		if (efs && efs->is_connected("resources_reimported", this, "_on_resources_reimported")) {
-			efs->disconnect("resources_reimported", this, "_on_resources_reimported");
-		}
+	EditorFileSystem *efs = Object::cast_to<EditorFileSystem>(ObjectDB::get_instance(editor_file_system_id));
+	if (efs && efs->is_connected("resources_reimported", this, "_on_resources_reimported")) {
+		efs->disconnect("resources_reimported", this, "_on_resources_reimported");
 	}
 #endif
 #endif
 
-	delete skeleton_data;
-	delete animation_state_data;
+	clear_native_skeleton_data();
 }
 
 #ifdef TOOLS_ENABLED
 #if VERSION_MAJOR > 3
 void SpineSkeletonDataResource::_on_resources_reimported(const PackedStringArray &resources) {
+	if (shutting_down) {
+		return;
+	}
+	Engine *engine = Engine::get_singleton();
+	if (!engine) {
+		return;
+	}
 	bool atlas_textures_updated = false;
 	if (atlas_res.is_valid()) {
 		atlas_res->reload_page_textures();
@@ -245,19 +257,23 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PackedStringArray
 	}
 	for (int i = 0; i < resources.size(); i++) {
 		if (atlas_res.is_valid() && atlas_res->get_path() == resources[i]) {
+			emit_signal(SNAME("_internal_spine_objects_invalidated"));
+			clear_native_skeleton_data();
 #ifdef SPINE_GODOT_EXTENSION
 			atlas_res = ResourceLoader::get_singleton()->load(resources[i], "SpineAtlasResource", ResourceLoader::CACHE_MODE_IGNORE);
 #else
 			atlas_res = ResourceLoader::load(resources[i], "SpineAtlasResource", ResourceFormatLoader::CACHE_MODE_IGNORE);
 #endif
-			update_skeleton_data();
+			schedule_update_skeleton_data();
 		} else if (skeleton_file_res.is_valid() && skeleton_file_res->get_path() == resources[i]) {
+			emit_signal(SNAME("_internal_spine_objects_invalidated"));
+			clear_native_skeleton_data();
 #ifdef SPINE_GODOT_EXTENSION
 			skeleton_file_res = ResourceLoader::get_singleton()->load(resources[i], "SpineSkeletonFileResource", ResourceLoader::CACHE_MODE_IGNORE);
 #else
 			skeleton_file_res = ResourceLoader::load(resources[i], "SpineSkeletonFileResource", ResourceFormatLoader::CACHE_MODE_IGNORE);
 #endif
-			update_skeleton_data();
+			schedule_update_skeleton_data();
 		}
 	}
 	if (atlas_textures_updated) {
@@ -266,6 +282,13 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PackedStringArray
 }
 #else
 void SpineSkeletonDataResource::_on_resources_reimported(const PoolStringArray &resources) {
+	if (shutting_down) {
+		return;
+	}
+	Engine *engine = Engine::get_singleton();
+	if (!engine) {
+		return;
+	}
 	bool atlas_textures_updated = false;
 	if (atlas_res.is_valid()) {
 		atlas_res->reload_page_textures();
@@ -273,11 +296,15 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PoolStringArray &
 	}
 	for (int i = 0; i < resources.size(); i++) {
 		if (atlas_res.is_valid() && atlas_res->get_path() == resources[i]) {
+			emit_signal(SNAME("_internal_spine_objects_invalidated"));
+			clear_native_skeleton_data();
 			atlas_res = ResourceLoader::load(resources[i]);
-			update_skeleton_data();
+			schedule_update_skeleton_data();
 		} else if (skeleton_file_res.is_valid() && skeleton_file_res->get_path() == resources[i]) {
+			emit_signal(SNAME("_internal_spine_objects_invalidated"));
+			clear_native_skeleton_data();
 			skeleton_file_res = ResourceLoader::load(resources[i]);
-			update_skeleton_data();
+			schedule_update_skeleton_data();
 		}
 	}
 	if (atlas_textures_updated) {
@@ -287,7 +314,7 @@ void SpineSkeletonDataResource::_on_resources_reimported(const PoolStringArray &
 #endif
 #endif
 
-void SpineSkeletonDataResource::update_skeleton_data() {
+void SpineSkeletonDataResource::clear_native_skeleton_data() {
 	if (skeleton_data) {
 		delete skeleton_data;
 		skeleton_data = nullptr;
@@ -296,15 +323,98 @@ void SpineSkeletonDataResource::update_skeleton_data() {
 		delete animation_state_data;
 		animation_state_data = nullptr;
 	}
+}
 
+static bool sequence_regions_are_valid(spine::Sequence &sequence) {
+	const spine::Array<spine::TextureRegion *> &regions = sequence.getRegions();
+	for (size_t i = 0; i < regions.size(); i++) {
+		if (regions[i] == nullptr) {
+			return false;
+		}
+	}
+	return true;
+}
+
+static bool attachment_regions_are_valid(spine::Attachment *attachment) {
+	if (!attachment) {
+		return true;
+	}
+	if (attachment->getRTTI().isExactly(spine::RegionAttachment::rtti)) {
+		return sequence_regions_are_valid(((spine::RegionAttachment *)attachment)->getSequence());
+	}
+	if (attachment->getRTTI().isExactly(spine::MeshAttachment::rtti)) {
+		return sequence_regions_are_valid(((spine::MeshAttachment *)attachment)->getSequence());
+	}
+	return true;
+}
+
+bool SpineSkeletonDataResource::validate_skeleton_atlas_regions(spine::SkeletonData *data) const {
+	if (!data) {
+		return false;
+	}
+	auto &skins = data->getSkins();
+	for (size_t i = 0; i < skins.size(); i++) {
+		spine::Skin::AttachmentMap::Entries entries = skins[i]->getAttachments();
+		while (entries.hasNext()) {
+			spine::Skin::AttachmentMap::Entry &entry = entries.next();
+			if (!attachment_regions_are_valid(entry._attachment)) {
+				return false;
+			}
+		}
+	}
+	return true;
+}
+
+void SpineSkeletonDataResource::schedule_update_skeleton_data() {
+	if (shutting_down) {
+		return;
+	}
+#ifdef TOOLS_ENABLED
+	Engine *engine = Engine::get_singleton();
+	if (!engine) {
+		return;
+	}
+	if (engine->is_editor_hint()) {
+		if (update_skeleton_data_pending) {
+			return;
+		}
+		update_skeleton_data_pending = true;
+		call_deferred(SNAME("update_skeleton_data"));
+		return;
+	}
+#endif
+	update_skeleton_data();
+}
+
+void SpineSkeletonDataResource::update_skeleton_data() {
+	if (shutting_down) {
+		update_skeleton_data_pending = false;
+		return;
+	}
+	Engine *engine = Engine::get_singleton();
+	if (!engine) {
+		update_skeleton_data_pending = false;
+		return;
+	}
+	update_skeleton_data_pending = false;
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
+	clear_native_skeleton_data();
 
 	if (atlas_res.is_valid() && skeleton_file_res.is_valid()) {
 		load_resources(atlas_res->get_spine_atlas(), skeleton_file_res->get_json(), skeleton_file_res->get_binary());
+		if (skeleton_data && !validate_skeleton_atlas_regions(skeleton_data)) {
+			ERR_PRINT("Spine: atlas and skeleton do not match. Skeleton attachments reference regions missing from the atlas.");
+			clear_native_skeleton_data();
+		}
+	}
+	if (shutting_down) {
+		return;
 	}
 	emit_signal(SNAME("skeleton_data_changed"));
 #ifdef TOOLS_ENABLED
-	NOTIFY_PROPERTY_LIST_CHANGED();
+	if (engine->is_editor_hint()) {
+		call_deferred(SNAME("notify_property_list_changed"));
+	}
 #endif
 }
 
@@ -343,8 +453,12 @@ bool SpineSkeletonDataResource::is_skeleton_data_loaded() const {
 }
 
 void SpineSkeletonDataResource::set_atlas_res(const Ref<SpineAtlasResource> &atlas) {
+	// Tear down live skeleton instances, then drop native skeleton data before the old atlas
+	// can be freed (atlas_res = atlas may destroy it immediately).
+	emit_signal(SNAME("_internal_spine_objects_invalidated"));
+	clear_native_skeleton_data();
 	atlas_res = atlas;
-	update_skeleton_data();
+	schedule_update_skeleton_data();
 }
 
 Ref<SpineAtlasResource> SpineSkeletonDataResource::get_atlas_res() {
@@ -352,8 +466,10 @@ Ref<SpineAtlasResource> SpineSkeletonDataResource::get_atlas_res() {
 }
 
 void SpineSkeletonDataResource::set_skeleton_file_res(const Ref<SpineSkeletonFileResource> &skeleton_file) {
+	emit_signal(SNAME("_internal_spine_objects_invalidated"));
+	clear_native_skeleton_data();
 	skeleton_file_res = skeleton_file;
-	update_skeleton_data();
+	schedule_update_skeleton_data();
 }
 
 Ref<SpineSkeletonFileResource> SpineSkeletonDataResource::get_skeleton_file_res() {

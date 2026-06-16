@@ -28,6 +28,7 @@
  *****************************************************************************/
 
 #include "SpineSprite2D.h"
+#include "SpineSpriteCommon.h"
 #include "SpineEvent.h"
 #include "SpineTrackEntry.h"
 #include "SpineSkeleton.h"
@@ -91,6 +92,8 @@
 #endif
 #endif
 
+static void update_preview_animation(SpineSprite2D *sprite, const String &skin, const String &animation, bool frame, float time);
+
 // Needed due to shared lib initializers in GDExtension.
 // See: https://x.com/badlogicgames/status/1843661872404591068
 struct SpineSprite2DStatics {
@@ -143,9 +146,13 @@ public:
 	}
 
 	static void clear() {
-		if (_instance) {
-			delete _instance;
+		if (!_instance) {
+			return;
 		}
+		if (_instance->sprite_count > 0) {
+			return;
+		}
+		delete _instance;
 		_instance = nullptr;
 	}
 };
@@ -483,6 +490,10 @@ void SpineSprite2D::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_skeleton"), &SpineSprite2D::get_skeleton);
 	ClassDB::bind_method(D_METHOD("get_animation_state"), &SpineSprite2D::get_animation_state);
 	ClassDB::bind_method(D_METHOD("on_skeleton_data_changed"), &SpineSprite2D::on_skeleton_data_changed);
+	ClassDB::bind_method(D_METHOD("teardown_spine_objects"), &SpineSprite2D::teardown_spine_objects);
+	ClassDB::bind_method(D_METHOD("teardown_mesh_children"), &SpineSprite2D::teardown_mesh_children);
+	ClassDB::bind_method(D_METHOD("rebuild_spine_objects"), &SpineSprite2D::rebuild_spine_objects);
+	ClassDB::bind_method(D_METHOD("schedule_skeleton_rebuild"), &SpineSprite2D::schedule_skeleton_rebuild);
 
 	ClassDB::bind_method(D_METHOD("get_global_bone_transform", "bone_name"), &SpineSprite2D::get_global_bone_transform);
 	ClassDB::bind_method(D_METHOD("set_global_bone_transform", "bone_name", "global_transform"), &SpineSprite2D::set_global_bone_transform);
@@ -596,7 +607,7 @@ void SpineSprite2D::_bind_methods() {
 }
 
 SpineSprite2D::SpineSprite2D()
-	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), preview_skin("Default"), preview_animation("-- Empty --"),
+	: update_mode(SpineConstant::UpdateMode_Process), time_scale(1.0), preview_skin(""), preview_animation(SPINE_PREVIEW_NONE),
 	  preview_frame(false), preview_time(0), skeleton_clipper(nullptr), modified_bones(false) {
 	skeleton_clipper = new spine::SkeletonClipping();
 	auto statics = SpineSprite2DStatics::instance();
@@ -622,6 +633,13 @@ SpineSprite2D::SpineSprite2D()
 }
 
 SpineSprite2D::~SpineSprite2D() {
+	disconnect_skeleton_data_res_signals();
+	if (animation_state.is_valid() && animation_state->get_spine_object()) {
+		animation_state->get_spine_object()->setListener((spine::AnimationStateListenerObject *) nullptr);
+	}
+	suspend_rendering();
+	skeleton.unref();
+	animation_state.unref();
 	delete skeleton_clipper;
 	auto statics = SpineSprite2DStatics::instance();
 	statics.sprite_count--;
@@ -631,50 +649,159 @@ SpineSprite2D::~SpineSprite2D() {
 }
 
 void SpineSprite2D::set_skeleton_data_res(const Ref<SpineSkeletonDataResource> &_skeleton_data) {
+	if (skeleton_data_res == _skeleton_data) {
+		return;
+	}
+	disconnect_skeleton_data_res_signals();
+	teardown_spine_objects();
 	skeleton_data_res = _skeleton_data;
-	on_skeleton_data_changed();
+	connect_skeleton_data_res_signals();
+	schedule_skeleton_rebuild();
 }
 Ref<SpineSkeletonDataResource> SpineSprite2D::get_skeleton_data_res() {
 	return skeleton_data_res;
 }
 
-void SpineSprite2D::on_skeleton_data_changed() {
+void SpineSprite2D::connect_skeleton_data_res_signals() {
+	if (!skeleton_data_res.is_valid()) {
+		return;
+	}
+#if VERSION_MAJOR > 3
+	const Callable teardown_callable = callable_mp(this, &SpineSprite2D::teardown_spine_objects);
+	const Callable rebuild_callable = callable_mp(this, &SpineSprite2D::schedule_skeleton_rebuild);
+	if (!skeleton_data_res->is_connected(SNAME("_internal_spine_objects_invalidated"), teardown_callable)) {
+		skeleton_data_res->connect(SNAME("_internal_spine_objects_invalidated"), teardown_callable);
+	}
+	if (!skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), rebuild_callable)) {
+		skeleton_data_res->connect(SNAME("skeleton_data_changed"), rebuild_callable);
+	}
+#else
+	if (!skeleton_data_res->is_connected(SNAME("_internal_spine_objects_invalidated"), this, SNAME("teardown_spine_objects"))) {
+		skeleton_data_res->connect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("teardown_spine_objects"));
+	}
+	if (!skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), this, SNAME("schedule_skeleton_rebuild"))) {
+		skeleton_data_res->connect(SNAME("skeleton_data_changed"), this, SNAME("schedule_skeleton_rebuild"));
+	}
+#endif
+}
+
+void SpineSprite2D::disconnect_skeleton_data_res_signals() {
+	if (!skeleton_data_res.is_valid()) {
+		return;
+	}
+#if VERSION_MAJOR > 3
+	const Callable teardown_callable = callable_mp(this, &SpineSprite2D::teardown_spine_objects);
+	const Callable rebuild_callable = callable_mp(this, &SpineSprite2D::schedule_skeleton_rebuild);
+	if (skeleton_data_res->is_connected(SNAME("_internal_spine_objects_invalidated"), teardown_callable)) {
+		skeleton_data_res->disconnect(SNAME("_internal_spine_objects_invalidated"), teardown_callable);
+	}
+	if (skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), rebuild_callable)) {
+		skeleton_data_res->disconnect(SNAME("skeleton_data_changed"), rebuild_callable);
+	}
+#else
+	if (skeleton_data_res->is_connected(SNAME("_internal_spine_objects_invalidated"), this, SNAME("teardown_spine_objects"))) {
+		skeleton_data_res->disconnect(SNAME("_internal_spine_objects_invalidated"), this, SNAME("teardown_spine_objects"));
+	}
+	if (skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), this, SNAME("schedule_skeleton_rebuild"))) {
+		skeleton_data_res->disconnect(SNAME("skeleton_data_changed"), this, SNAME("schedule_skeleton_rebuild"));
+	}
+#endif
+}
+
+void SpineSprite2D::suspend_rendering() {
+#if VERSION_MAJOR > 3 || defined(SPINE_GODOT_EXTENSION)
+	for (int i = 0; i < mesh_instances.size(); ++i) {
+		SpineMesh2D *mesh_instance = mesh_instances[i];
+		if (mesh_instance && !mesh_instance->is_queued_for_deletion()) {
+			mesh_instance->clear_canvas_mesh();
+		}
+	}
+#endif
 	remove_meshes();
+}
+
+void SpineSprite2D::teardown_spine_objects() {
+	if (!is_inside_tree() || is_queued_for_deletion()) {
+		suspend_rendering();
+		if (animation_state.is_valid() && animation_state->get_spine_object()) {
+			animation_state->get_spine_object()->setListener((spine::AnimationStateListenerObject *) nullptr);
+		}
+		skeleton.unref();
+		animation_state.unref();
+		return;
+	}
+	suspend_rendering();
+	if (animation_state.is_valid() && animation_state->get_spine_object()) {
+		animation_state->get_spine_object()->setListener((spine::AnimationStateListenerObject *) nullptr);
+	}
 	skeleton.unref();
 	animation_state.unref();
 	emit_signal(SNAME("_internal_spine_objects_invalidated"));
+}
 
-	if (skeleton_data_res.is_valid()) {
-#if VERSION_MAJOR > 3
-		if (!skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), callable_mp(this, &SpineSprite2D::on_skeleton_data_changed)))
-			skeleton_data_res->connect(SNAME("skeleton_data_changed"), callable_mp(this, &SpineSprite2D::on_skeleton_data_changed));
-#else
-		if (!skeleton_data_res->is_connected(SNAME("skeleton_data_changed"), this, SNAME("on_skeleton_data_changed")))
-			skeleton_data_res->connect(SNAME("skeleton_data_changed"), this, SNAME("on_skeleton_data_changed"));
+void SpineSprite2D::teardown_mesh_children() {
+	if (is_queued_for_deletion() || !is_inside_tree()) {
+		return;
+	}
+	suspend_rendering();
+}
+
+void SpineSprite2D::schedule_skeleton_rebuild() {
+	if (!is_inside_tree() || is_queued_for_deletion()) {
+		return;
+	}
+	call_deferred(SNAME("rebuild_spine_objects"));
+}
+
+void SpineSprite2D::rebuild_spine_objects() {
+	if (is_queued_for_deletion() || !is_inside_tree()) {
+		return;
+	}
+
+	suspend_rendering();
+
+	if (!skeleton_data_res.is_valid() || !skeleton_data_res->is_skeleton_data_loaded()) {
+		call_deferred(SNAME("notify_property_list_changed"));
+		return;
+	}
+
+	skeleton = Ref<SpineSkeleton>(memnew(SpineSkeleton));
+	skeleton->set_spine_sprite(this);
+
+	animation_state = Ref<SpineAnimationState>(memnew(SpineAnimationState));
+	animation_state->set_spine_sprite(this);
+	if (!animation_state->get_spine_object()) {
+		ERR_PRINT("Spine: animation_state native object is null after set_spine_sprite, aborting rebuild.");
+		skeleton.unref();
+		animation_state.unref();
+		call_deferred(SNAME("notify_property_list_changed"));
+		return;
+	}
+	animation_state->get_spine_object()->setListener(this);
+
+	animation_state->update(0);
+	animation_state->apply(skeleton);
+	skeleton->update_world_transform(SpineConstant::Physics_Update);
+	generate_meshes_for_slots(skeleton);
+
+	if (update_mode == SpineConstant::UpdateMode_Process) {
+		_notification(NOTIFICATION_INTERNAL_PROCESS);
+	} else if (update_mode == SpineConstant::UpdateMode_Physics) {
+		_notification(NOTIFICATION_INTERNAL_PHYSICS_PROCESS);
+	}
+
+	call_deferred(SNAME("notify_property_list_changed"));
+
+#ifdef TOOLS_ENABLED
+	if (Engine::get_singleton()->is_editor_hint()) {
+		preview_skin = spine_resolve_preview_skin(skeleton_data_res, preview_skin);
+		update_preview_animation(this, preview_skin, preview_animation, preview_frame, preview_time);
+	}
 #endif
-	}
+}
 
-	if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded()) {
-		skeleton = Ref<SpineSkeleton>(memnew(SpineSkeleton));
-		skeleton->set_spine_sprite(this);
-
-		animation_state = Ref<SpineAnimationState>(memnew(SpineAnimationState));
-		animation_state->set_spine_sprite(this);
-		animation_state->get_spine_object()->setListener(this);
-
-		animation_state->update(0);
-		animation_state->apply(skeleton);
-		skeleton->update_world_transform(SpineConstant::Physics_Update);
-		generate_meshes_for_slots(skeleton);
-
-		if (update_mode == SpineConstant::UpdateMode_Process) {
-			_notification(NOTIFICATION_INTERNAL_PROCESS);
-		} else if (update_mode == SpineConstant::UpdateMode_Physics) {
-			_notification(NOTIFICATION_INTERNAL_PHYSICS_PROCESS);
-		}
-	}
-
-	NOTIFY_PROPERTY_LIST_CHANGED();
+void SpineSprite2D::on_skeleton_data_changed() {
+	schedule_skeleton_rebuild();
 }
 
 void SpineSprite2D::generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref) {
@@ -694,8 +821,14 @@ void SpineSprite2D::generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref) {
 
 void SpineSprite2D::remove_meshes() {
 	for (int i = 0; i < mesh_instances.size(); ++i) {
-		remove_child(mesh_instances[i]);
-		memdelete(mesh_instances[i]);
+		SpineMesh2D *mesh_instance = mesh_instances[i];
+		if (!mesh_instance || mesh_instance->is_queued_for_deletion()) {
+			continue;
+		}
+		if (mesh_instance->get_parent() == this) {
+			remove_child(mesh_instance);
+		}
+		memdelete(mesh_instance);
 	}
 	mesh_instances.clear();
 	slot_nodes.clear();
@@ -741,9 +874,30 @@ Ref<SpineAnimationState> SpineSprite2D::get_animation_state() {
 
 void SpineSprite2D::_notification(int what) {
 	switch (what) {
+		case NOTIFICATION_EXIT_TREE: {
+			disconnect_skeleton_data_res_signals();
+			if (animation_state.is_valid() && animation_state->get_spine_object()) {
+				animation_state->get_spine_object()->setListener((spine::AnimationStateListenerObject *) nullptr);
+			}
+			skeleton.unref();
+			animation_state.unref();
+			suspend_rendering();
+			break;
+		}
+		case NOTIFICATION_ENTER_TREE: {
+			connect_skeleton_data_res_signals();
+			if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded() && !skeleton.is_valid()) {
+				schedule_skeleton_rebuild();
+			}
+			break;
+		}
 		case NOTIFICATION_READY: {
 			set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
 			set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
+			connect_skeleton_data_res_signals();
+			if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded() && !skeleton.is_valid()) {
+				schedule_skeleton_rebuild();
+			}
 			break;
 		}
 		case NOTIFICATION_INTERNAL_PROCESS: {
@@ -774,7 +928,7 @@ void SpineSprite2D::_get_property_list(List<PropertyInfo> *list) const {
 #endif
 	skeleton_data_res->get_animation_names(animation_names);
 	skeleton_data_res->get_skin_names(skin_names);
-	animation_names.insert(0, "-- Empty --");
+	animation_names.insert(0, SPINE_PREVIEW_NONE);
 
 	PropertyInfo preview_skin_property;
 	preview_skin_property.name = "preview_skin";
@@ -803,7 +957,7 @@ void SpineSprite2D::_get_property_list(List<PropertyInfo> *list) const {
 	preview_time_property.type = VARIANT_FLOAT;
 	preview_time_property.usage = PROPERTY_USAGE_EDITOR | PROPERTY_USAGE_STORAGE;
 	float animation_duration = 0;
-	if (!EMPTY(preview_animation) && preview_animation != "-- Empty --") {
+	if (!spine_preview_animation_is_none(preview_animation)) {
 		auto animation = skeleton_data_res->find_animation(preview_animation);
 		if (animation.is_valid()) animation_duration = animation->get_duration();
 	}
@@ -818,12 +972,12 @@ void SpineSprite2D::_get_property_list(List<PropertyInfo> *list) const {
 
 bool SpineSprite2D::_get(const StringName &p_property, Variant &value) const {
 	if (p_property == StringName("preview_skin")) {
-		value = preview_skin;
+		value = spine_resolve_preview_skin(skeleton_data_res, preview_skin);
 		return true;
 	}
 
 	if (p_property == StringName("preview_animation")) {
-		value = preview_animation;
+		value = spine_normalize_preview_animation(preview_animation);
 		return true;
 	}
 
@@ -843,35 +997,40 @@ static void update_preview_animation(SpineSprite2D *sprite, const String &skin, 
 	if (!Engine::get_singleton()->is_editor_hint()) return;
 	if (!sprite->get_skeleton().is_valid()) return;
 
-	if (EMPTY(skin) || skin == "Default") {
+	const String skin_name = spine_resolve_preview_skin(sprite->get_skeleton_data_res(), skin);
+	const String animation_name = spine_normalize_preview_animation(animation);
+
+	if (skin_name.is_empty()) {
 		sprite->get_skeleton()->set_skin(nullptr);
 	} else {
-		sprite->get_skeleton()->set_skin_by_name(skin);
+		sprite->get_skeleton()->set_skin_by_name(skin_name);
 	}
 	sprite->get_skeleton()->set_to_setup_pose();
-	if (EMPTY(animation) || animation == "-- Empty --") {
+	if (spine_preview_animation_is_none(animation_name)) {
 		sprite->get_animation_state()->set_empty_animation(0, 0);
+		sprite->update_skeleton(0);
 		return;
 	}
 
-	auto track_entry = sprite->get_animation_state()->set_animation(animation, true, 0);
+	auto track_entry = sprite->get_animation_state()->set_animation(animation_name, true, 0);
 	track_entry->set_mix_duration(0);
 	if (frame) {
 		track_entry->set_time_scale(0);
 		track_entry->set_track_time(time);
 	}
+	sprite->update_skeleton(0);
 }
 
 bool SpineSprite2D::_set(const StringName &p_property, const Variant &value) {
 	if (p_property == StringName("preview_skin")) {
-		preview_skin = value;
+		preview_skin = spine_resolve_preview_skin(skeleton_data_res, value);
 		update_preview_animation(this, preview_skin, preview_animation, preview_frame, preview_time);
 		NOTIFY_PROPERTY_LIST_CHANGED();
 		return true;
 	}
 
 	if (p_property == StringName("preview_animation")) {
-		preview_animation = value;
+		preview_animation = spine_normalize_preview_animation(value);
 		update_preview_animation(this, preview_skin, preview_animation, preview_frame, preview_time);
 		NOTIFY_PROPERTY_LIST_CHANGED();
 		return true;

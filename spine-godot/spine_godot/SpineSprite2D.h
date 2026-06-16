@@ -184,6 +184,7 @@ protected:
 
 	void generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref);
 	void remove_meshes();
+	void suspend_rendering();
 	void sort_slot_nodes();
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
 	void draw();
@@ -204,6 +205,12 @@ public:
 	Ref<SpineAnimationState> get_animation_state();
 
 	void on_skeleton_data_changed();
+	void connect_skeleton_data_res_signals();
+	void disconnect_skeleton_data_res_signals();
+	void teardown_spine_objects();
+	void teardown_mesh_children();
+	void rebuild_spine_objects();
+	void schedule_skeleton_rebuild();
 
 	void set_modified_bones() {
 		modified_bones = true;

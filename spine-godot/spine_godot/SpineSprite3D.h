@@ -151,6 +151,12 @@ protected:
 	PackedColorArray scratch_mesh_colors;
 	PackedInt32Array scratch_mesh_indices;
 	bool atlas_textures_pending_refresh;
+	Ref<SpineAtlasResource> connected_atlas_res;
+	Callable atlas_texture_refresh_callable;
+#if defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
+	Callable editor_filesystem_callable;
+	bool editor_filesystem_bound;
+#endif
 	MeshInstance3D *debug_mesh_instance;
 	Ref<Material> normal_material;
 	Ref<Material> additive_material;
@@ -174,11 +180,19 @@ protected:
 
 	static void _bind_methods();
 	void visual_settings_changed();
+	void disconnect_atlas_texture_refresh();
 	void connect_atlas_texture_refresh();
 	void refresh_atlas_page_textures();
 	void schedule_display_refresh();
+	void connect_skeleton_data_res_signals();
+	void disconnect_skeleton_data_res_signals();
+	void teardown_spine_objects();
+	void teardown_mesh_children();
+	void rebuild_spine_objects();
+	void schedule_skeleton_rebuild();
 	Ref<Texture2D> resolve_albedo_texture(SpineRendererObject *p_renderer_object);
 	void bind_editor_import_refresh();
+	void unbind_editor_import_refresh();
 	void on_editor_filesystem_changed();
 	void update_flip_origin(spine::Skeleton *skeleton_obj);
 	void configure_slot_material(StandardMaterial3D *p_material, int draw_order) const;
@@ -192,6 +206,8 @@ protected:
 	void update_meshes(Ref<SpineSkeleton> skeleton_ref);
 	void draw_debug();
 	void draw_debug_bone(Ref<ImmediateMesh> &mesh, spine::Bone *bone, const Color &color);
+	bool is_renderable() const;
+	void suspend_rendering();
 	void ensure_debug_mesh_instance();
 	void debug_settings_changed();
 	void callback(spine::AnimationState *state, spine::EventType type, spine::TrackEntry *entry, spine::Event *event) override;
