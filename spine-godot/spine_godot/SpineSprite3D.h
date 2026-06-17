@@ -164,6 +164,7 @@ protected:
 	Ref<Material> screen_material;
 	spine::SkeletonClipping *skeleton_clipper;
 	bool modified_bones;
+	bool ready_notified;
 
 	bool flip_h;
 	bool flip_v;

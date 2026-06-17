@@ -65,7 +65,45 @@
 #endif
 
 static const float SPINE_SLOT_SORT_Z_STEP = 0.001f;
-static const float SPINE_SLOT_SORTING_OFFSET_STEP = 0.1f;
+// Applied along the camera view axis for transparent sort. Unlike local Z node offsets,
+// this keeps Spine slot draw order correct when the camera rotates around the sprite.
+static const float SPINE_SLOT_SORTING_OFFSET_STEP = 0.001f;
+
+struct SpineSprite3DSavedTrack {
+	int track_index = 0;
+	String animation_name;
+	bool loop = false;
+};
+
+static void spine_sprite3d_save_animation_tracks(const Ref<SpineAnimationState> &p_animation_state, Vector<SpineSprite3DSavedTrack> &r_saved_tracks) {
+	r_saved_tracks.clear();
+	if (!p_animation_state.is_valid() || !p_animation_state->get_spine_object()) {
+		return;
+	}
+	spine::AnimationState *previous_state = p_animation_state->get_spine_object();
+	spine::Array<spine::TrackEntry *> &tracks = previous_state->getTracks();
+	for (int i = 0; i < (int)tracks.size(); i++) {
+		spine::TrackEntry *entry = tracks[i];
+		if (!entry) {
+			continue;
+		}
+		SpineSprite3DSavedTrack saved;
+		saved.track_index = i;
+		saved.animation_name = String(entry->getAnimation().getName().buffer());
+		saved.loop = entry->getLoop();
+		r_saved_tracks.push_back(saved);
+	}
+}
+
+static void spine_sprite3d_restore_animation_tracks(const Ref<SpineAnimationState> &p_animation_state, const Vector<SpineSprite3DSavedTrack> &p_saved_tracks) {
+	if (!p_animation_state.is_valid() || !p_animation_state->get_spine_object()) {
+		return;
+	}
+	for (int i = 0; i < p_saved_tracks.size(); i++) {
+		const SpineSprite3DSavedTrack &saved = p_saved_tracks[i];
+		p_animation_state->set_animation(saved.animation_name, saved.loop, saved.track_index);
+	}
+}
 
 static void update_preview_animation(SpineSprite3D *sprite, const String &skin, const String &animation, bool frame, float time);
 
@@ -592,7 +630,7 @@ SpineSprite3D::SpineSprite3D()
 #if defined(TOOLS_ENABLED) && !defined(SPINE_GODOT_EXTENSION)
 	  editor_filesystem_bound(false),
 #endif
-	  modified_bones(false), flip_h(false), flip_v(false), flip_origin_x(0.0f), flip_origin_y(0.0f), flip_origin_valid(false),
+	  modified_bones(false), ready_notified(false), flip_h(false), flip_v(false), flip_origin_x(0.0f), flip_origin_y(0.0f), flip_origin_valid(false),
 	  modulate(Color(1, 1, 1, 1)), pixel_size(0.1), sprite_render_priority(0), billboard_mode(BaseMaterial3D::BILLBOARD_DISABLED),
 	  texture_filter(BaseMaterial3D::TEXTURE_FILTER_LINEAR_WITH_MIPMAPS) {
 	for (int i = 0; i < FLAG_MAX; i++) {
@@ -641,6 +679,7 @@ SpineSprite3D::~SpineSprite3D() {
 void SpineSprite3D::_notification(int what) {
 	switch (what) {
 		case NOTIFICATION_EXIT_TREE:
+			ready_notified = false;
 			disconnect_skeleton_data_res_signals();
 			disconnect_atlas_texture_refresh();
 			unbind_editor_import_refresh();
@@ -654,7 +693,9 @@ void SpineSprite3D::_notification(int what) {
 		case NOTIFICATION_ENTER_TREE:
 			connect_skeleton_data_res_signals();
 			if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded() && !skeleton.is_valid()) {
-				schedule_skeleton_rebuild();
+				if (ready_notified) {
+					rebuild_spine_objects();
+				}
 			} else if (skeleton.is_valid()) {
 				schedule_display_refresh();
 			}
@@ -665,12 +706,13 @@ void SpineSprite3D::_notification(int what) {
 			}
 			break;
 		case NOTIFICATION_READY:
+			ready_notified = true;
 			set_process_internal(update_mode == SpineConstant::UpdateMode_Process);
 			set_physics_process_internal(update_mode == SpineConstant::UpdateMode_Physics);
 			bind_editor_import_refresh();
 			connect_skeleton_data_res_signals();
 			if (skeleton_data_res.is_valid() && skeleton_data_res->is_skeleton_data_loaded() && !skeleton.is_valid()) {
-				schedule_skeleton_rebuild();
+				rebuild_spine_objects();
 			} else if (skeleton.is_valid()) {
 				schedule_display_refresh();
 			}
@@ -812,6 +854,9 @@ void SpineSprite3D::rebuild_spine_objects() {
 		return;
 	}
 
+	Vector<SpineSprite3DSavedTrack> saved_tracks;
+	spine_sprite3d_save_animation_tracks(animation_state, saved_tracks);
+
 	atlas_textures_pending_refresh = false;
 	skeleton = Ref<SpineSkeleton>(memnew(SpineSkeleton));
 	skeleton->set_spine_sprite(this);
@@ -825,6 +870,7 @@ void SpineSprite3D::rebuild_spine_objects() {
 		return;
 	}
 	animation_state->get_spine_object()->setListener(this);
+	spine_sprite3d_restore_animation_tracks(animation_state, saved_tracks);
 	animation_state->update(0);
 	animation_state->apply(skeleton);
 	skeleton->update_world_transform(SpineConstant::Physics_Update);
@@ -1012,6 +1058,7 @@ void SpineSprite3D::generate_meshes_for_slots(Ref<SpineSkeleton> skeleton_ref) {
 		auto mesh_instance = memnew(SpineMesh3D);
 		mesh_instance->set_material(statics.default_materials[spine::BlendMode_Normal]);
 		mesh_instance->set_sorting_use_aabb_center(false);
+		mesh_instance->set_sorting_offset(0.0f);
 		add_child(mesh_instance, false, INTERNAL_MODE_BACK);
 		mesh_instance->set_owner(this);
 #ifdef TOOLS_ENABLED
@@ -1079,6 +1126,7 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 		spine::Slot *slot = skeleton_obj->getDrawOrder().getAppliedPose()[i];
 		spine::Attachment *attachment = slot->getAppliedPose().getAttachment();
 		SpineMesh3D *mesh_instance = mesh_instances[i];
+		mesh_instance->set_position(Vector3(0, 0, 0));
 		mesh_instance->set_sorting_offset((float)i * SPINE_SLOT_SORTING_OFFSET_STEP);
 
 		if (!attachment || !slot->getBone().isActive()) {
@@ -1162,7 +1210,7 @@ void SpineSprite3D::update_meshes(Ref<SpineSkeleton> skeleton_ref) {
 			for (int j = 0; j < num_vertices; j++) {
 				const float x = scratch_vertices->buffer()[j * 2];
 				const float y = scratch_vertices->buffer()[j * 2 + 1];
-				scratch_mesh_vertices.set(j, spine_vertex_to_local(x, y, i));
+				scratch_mesh_vertices.set(j, spine_vertex_to_local(x, y, 0));
 				scratch_mesh_uvs.set(j, Vector2(scratch_uvs->buffer()[j * 2], scratch_uvs->buffer()[j * 2 + 1]));
 				scratch_mesh_colors.set(j, Color(tint.r, tint.g, tint.b, tint.a));
 			}
@@ -1277,7 +1325,10 @@ void SpineSprite3D::configure_slot_material(StandardMaterial3D *p_material, int 
 	p_material->set_billboard_mode(billboard_mode);
 	p_material->set_flag(BaseMaterial3D::FLAG_BILLBOARD_KEEP_SCALE, draw_flags[FLAG_FIXED_SIZE]);
 	p_material->set_texture_filter(texture_filter);
-	p_material->set_render_priority(sprite_render_priority + draw_order);
+	// One priority per sprite so world depth orders separate SpineSprite3D nodes.
+	// Slot draw order uses sorting_offset (view axis), not render_priority.
+	(void)draw_order;
+	p_material->set_render_priority(sprite_render_priority);
 }
 
 void SpineSprite3D::set_flip_h(bool flip) {
